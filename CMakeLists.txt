@@ -31,3 +31,7 @@ target_link_libraries(exchange_sim PRIVATE meridian_core)
 
 add_executable(order_client src/order_client.cpp)
 target_link_libraries(order_client PRIVATE meridian_core)
+
+add_executable(test_order_id tests/test_order_id.cpp)
+target_link_libraries(test_order_id PRIVATE meridian_core)
+add_test(NAME order_id COMMAND test_order_id)
