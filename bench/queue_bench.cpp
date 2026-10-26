@@ -18,6 +18,8 @@ static void pin(int cpu) {
     pthread_setaffinity_np(pthread_self(), sizeof s, &s);
 }
 
+static uint64_t g_push_fail = 0, g_pop_fail = 0;   // failed attempts in the last throughput run
+
 struct MutexQueue {
     bool try_push(uint64_t v) { std::lock_guard<std::mutex> g(m); if (d.size() >= 1024) return false; d.push_back(v); return true; }
     bool try_pop(uint64_t& v) { std::lock_guard<std::mutex> g(m); if (d.empty()) return false; v = d.front(); d.pop_front(); return true; }
@@ -28,8 +30,8 @@ template <typename Q>
 static double throughput(Q& q, uint64_t count, int cpu_a, int cpu_b) {
     uint64_t sum = 0;
     const auto t0 = std::chrono::steady_clock::now();
-    std::thread prod([&] { pin(cpu_a); for (uint64_t i = 1; i <= count; ++i) while (!q.try_push(i)) {} });
-    std::thread cons([&] { pin(cpu_b); uint64_t v, n = 0; while (n < count) if (q.try_pop(v)) { sum += v; ++n; } });
+    std::thread prod([&] { pin(cpu_a); uint64_t f = 0; for (uint64_t i = 1; i <= count; ++i) while (!q.try_push(i)) ++f; g_push_fail = f; });
+    std::thread cons([&] { pin(cpu_b); uint64_t v, n = 0, f = 0; while (n < count) { if (q.try_pop(v)) { sum += v; ++n; } else ++f; } g_pop_fail = f; });
     prod.join(); cons.join();
     const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     if (sum != count * (count + 1) / 2) std::printf("CHECKSUM MISMATCH\n");
@@ -64,7 +66,7 @@ int main(int argc, char** argv) {
     std::printf("producer cpu %d, consumer cpu %d, hw threads %u\n", a, b, std::thread::hardware_concurrency());
     const double ghz = calibrate_tsc_ghz();
     constexpr uint64_t COUNT = 5'000'000;
-    { static SpscQueue<uint64_t, 1024> q; std::printf("throughput spsc  : %7.1f M items/s\n", throughput(q, COUNT, a, b)); }
+    { static SpscQueue<uint64_t, 1024> q; const double r = throughput(q, COUNT, a, b); std::printf("throughput spsc  : %7.1f M items/s   full-fails %llu  empty-fails %llu\n", r, (unsigned long long)g_push_fail, (unsigned long long)g_pop_fail); }
     { static MutexQueue q;                std::printf("throughput mutex : %7.1f M items/s\n", throughput(q, COUNT, a, b)); }
     pingpong<SpscQueue<uint64_t, 1024>>("spsc", ghz, a, b);
     pingpong<MutexQueue>("mutex", ghz, a, b);

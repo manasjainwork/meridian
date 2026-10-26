@@ -18,3 +18,14 @@ Throughput: mutex 4.1-5.5 M items/s (stable). SPSC 20.3, 36.8, 299.1 M items/s.
   Hypotheses (untested): cpu 0/1 may be hyperthread siblings; cache-line ping-pong when the ring
   stays near empty vs batching when it fills.
 - SPSC p99.9 is ~1.6-1.7 us in all runs; cause unknown.
+
+## Follow-up: throughput is bimodal
+16 runs across cpu pairs (0,1) (0,2) (0,4) (0,6), 5M items each:
+- ~17-30 M items/s in 7 runs, ~175-325 M items/s in 9 runs, nothing in between.
+- Both modes appear on every pair, so it is not the hyperthread-sibling placement
+  (lscpu: 6 cores x 2 threads).
+- Failed push/pop counters do not separate the modes (fast runs: 1.5-3.6M full-fails,
+  0.1-0.9M empty-fails; slow runs: 2.5-3.3M and 0.9-1.6M).
+- Mechanism NOT established. Slow mode is ~55 ns/item, fast ~5 ns/item.
+- Latency (round trip) was stable across all runs, so this does not change the design choice.
+- Open: re-test off WSL2 on bare-metal Linux before drawing any conclusion.
