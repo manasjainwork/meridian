@@ -80,3 +80,10 @@ target_link_libraries(queue_bench PRIVATE meridian_core Threads::Threads)
 
 add_executable(pipeline_bench bench/pipeline_bench.cpp)
 target_link_libraries(pipeline_bench PRIVATE meridian_core Threads::Threads)
+
+add_executable(test_replay tests/test_replay.cpp)
+target_link_libraries(test_replay PRIVATE meridian_core)
+add_test(NAME replay COMMAND test_replay)
+
+add_executable(replay_bench bench/replay_bench.cpp)
+target_link_libraries(replay_bench PRIVATE meridian_core)
