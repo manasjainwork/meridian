@@ -42,3 +42,24 @@ add_test(NAME order_book COMMAND test_order_book)
 
 add_executable(book_bench bench/book_bench.cpp)
 target_link_libraries(book_bench PRIVATE meridian_core)
+
+add_executable(test_price_bitmap tests/test_price_bitmap.cpp)
+target_link_libraries(test_price_bitmap PRIVATE meridian_core)
+add_test(NAME price_bitmap COMMAND test_price_bitmap)
+
+add_executable(book_sparse_bench bench/book_sparse_bench.cpp)
+target_link_libraries(book_sparse_bench PRIVATE meridian_core)
+
+# old linear-scan variants, kept only to measure before/after
+add_executable(test_order_book_linear tests/test_order_book.cpp)
+target_link_libraries(test_order_book_linear PRIVATE meridian_core)
+target_compile_definitions(test_order_book_linear PRIVATE MERIDIAN_BOOK_LINEAR_SCAN)
+add_test(NAME order_book_linear COMMAND test_order_book_linear)
+
+add_executable(book_bench_linear bench/book_bench.cpp)
+target_link_libraries(book_bench_linear PRIVATE meridian_core)
+target_compile_definitions(book_bench_linear PRIVATE MERIDIAN_BOOK_LINEAR_SCAN)
+
+add_executable(book_sparse_bench_linear bench/book_sparse_bench.cpp)
+target_link_libraries(book_sparse_bench_linear PRIVATE meridian_core)
+target_compile_definitions(book_sparse_bench_linear PRIVATE MERIDIAN_BOOK_LINEAR_SCAN)

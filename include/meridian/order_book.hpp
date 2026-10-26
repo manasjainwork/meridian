@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include "meridian/price_bitmap.hpp"
 
 namespace meridian::book {
 
@@ -28,7 +29,8 @@ public:
     static constexpr uint32_t kNil = 0xFFFFFFFFu;
 
     OrderBook(uint32_t max_orders, uint32_t max_price)
-        : max_price_(max_price), orders_(max_orders), bids_(max_price), asks_(max_price) {
+        : max_price_(max_price), orders_(max_orders), bids_(max_price), asks_(max_price),
+          bid_bm_(max_price), ask_bm_(max_price) {
         for (uint32_t i = 0; i < max_orders; ++i) orders_[i].next = (i + 1 < max_orders) ? i + 1 : kNil;
         free_ = max_orders ? 0 : kNil;
         unsigned bits = 1;
@@ -118,6 +120,9 @@ private:
         if (L.tail != kNil) orders_[L.tail].next = idx; else L.head = idx;
         L.tail = idx;
         L.qty += qty;
+#ifndef MERIDIAN_BOOK_LINEAR_SCAN
+        (side == Side::Buy ? bid_bm_ : ask_bm_).set(price);
+#endif
         map_insert(id, idx);
         ++live_;
         if (side == Side::Buy) {
@@ -149,18 +154,32 @@ private:
         return done;
     }
 
-    // The best level just emptied: find the next non-empty one (linear scan, bitmap is a later optimisation).
+    // A level just emptied: if it was the best one, find the next non-empty level.
+    // Default: hierarchical bitmap. MERIDIAN_BOOK_LINEAR_SCAN keeps the old linear scan for comparison.
     void level_emptied(Side s, uint32_t price) noexcept {
+#ifndef MERIDIAN_BOOK_LINEAR_SCAN
+        (s == Side::Buy ? bid_bm_ : ask_bm_).clear(price);
+#endif
         if (s == Side::Sell) {
             if (!has_ask_ || price != best_ask_) return;
+#ifdef MERIDIAN_BOOK_LINEAR_SCAN
             for (uint32_t p = price + 1; p < max_price_; ++p)
                 if (asks_[p].head != kNil) { best_ask_ = p; return; }
             has_ask_ = false;
+#else
+            const size_t n = ask_bm_.next_ge(static_cast<size_t>(price) + 1);
+            if (n == PriceBitmap::npos) has_ask_ = false; else best_ask_ = static_cast<uint32_t>(n);
+#endif
         } else {
             if (!has_bid_ || price != best_bid_) return;
+#ifdef MERIDIAN_BOOK_LINEAR_SCAN
             for (uint32_t p = price; p-- > 1;)
                 if (bids_[p].head != kNil) { best_bid_ = p; return; }
             has_bid_ = false;
+#else
+            const size_t n = price > 0 ? bid_bm_.prev_le(static_cast<size_t>(price) - 1) : PriceBitmap::npos;
+            if (n == PriceBitmap::npos) has_bid_ = false; else best_bid_ = static_cast<uint32_t>(n);
+#endif
         }
     }
 
@@ -201,6 +220,7 @@ private:
     uint32_t max_price_;
     std::vector<Order> orders_;
     std::vector<Level> bids_, asks_;
+    PriceBitmap bid_bm_, ask_bm_;
     std::vector<uint64_t> keys_;
     std::vector<uint32_t> vals_;
     size_t mask_ = 0;

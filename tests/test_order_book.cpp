@@ -125,8 +125,12 @@ int main() {
     }
 
     // Differential fuzz: the real book must match the reference after every operation.
-    for (int round = 0; round < 20; ++round) {
-        OrderBook b(4096, 256);
+    for (int round = 0; round < 40; ++round) {
+        const bool sparse = round >= 20;                       // sparse: prices spread over 1..2000
+        const uint32_t max_p = sparse ? 2048 : 256;
+        const uint32_t lo = sparse ? 1 : 90;
+        const uint32_t span = sparse ? 2000 : 21;
+        OrderBook b(4096, max_p);
         RefBook r;
         uint64_t next_id = 1 + static_cast<uint64_t>(round) * 1000000ull;
         const uint64_t first_id = next_id;
@@ -137,7 +141,7 @@ int main() {
             if (rnd() % 100 < 65) {
                 const uint64_t id = (rnd() % 50 == 0 && next_id > first_id) ? first_id + rnd() % (next_id - first_id) : next_id++;
                 const Side s = (rnd() & 1) ? Side::Buy : Side::Sell;
-                const uint32_t p = 90 + static_cast<uint32_t>(rnd() % 21);
+                const uint32_t p = lo + static_cast<uint32_t>(rnd() % span);
                 const uint32_t q = 1 + static_cast<uint32_t>(rnd() % 20);
                 const AddResult res = b.add_limit(id, s, p, q, fb);
                 if (res == AddResult::Ok) r.add(id, s, p, q, fr);
@@ -151,7 +155,7 @@ int main() {
             if (b.size() != r.size()) ++bad;
             if (bad) break;
         }
-        for (uint32_t p = 85; p < 115 && !bad; ++p)
+        for (uint32_t p = 1; p < max_p && !bad; ++p)
             if (b.qty_at(Side::Buy, p) != r.qty_at(Side::Buy, p) || b.qty_at(Side::Sell, p) != r.qty_at(Side::Sell, p)) ++bad;
         CHECK(bad == 0);
     }
