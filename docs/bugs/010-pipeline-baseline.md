@@ -19,3 +19,16 @@ First 10k orders discarded. Environment: WSL2, i5-11400H, TSC 2.688 GHz, 3 runs.
 - Cause of the ms-scale stalls (hypothesis: a thread descheduled by Windows/WSL2). Not tested.
 - Why p50 at 100k/s (~380-400) is higher than at 500k/s (~250) (hypothesis: cold cache lines).
 - Saturation point: not reached at 4 M orders/s.
+
+## Follow-up: finding the saturation point (3 runs, rates 0.5-16 M orders/s)
+Correctness: 18/18 runs identical to single-thread.
+- 0.5-8 M orders/s: p50 230-320 ns in every run. p99: 6-20 us at 2 M/s, 34-52 us at 4 M/s,
+  60-137 us at 8 M/s.
+- 12 M/s: p50 11.7 us / p99 2.8 ms in 1 of 3 runs (overloaded); p50 371-392 ns in the other two.
+- 16 M/s: p50 7.4 ms / p99 14 ms in 1 of 3 runs (overloaded); p50 583-672 ns in the other two.
+- Saturation lies between 12 and 16 M orders/s on this machine; the exact value is not established.
+- Each rate sends only 400k orders (25 ms at 16 M/s), so this is a burst measurement,
+  not a sustained-rate claim. A sustained test needs a longer run and a larger order pool
+  (the 131k pool fills up at 70% adds / 30% cancels).
+- Open anomaly: p99 at 4 M/s (34-52 us) is higher than p99 at 12 M/s in the non-overloaded
+  runs (14-30 us). Cause unknown.
