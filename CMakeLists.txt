@@ -77,3 +77,6 @@ add_test(NAME spsc COMMAND test_spsc)
 
 add_executable(queue_bench bench/queue_bench.cpp)
 target_link_libraries(queue_bench PRIVATE meridian_core Threads::Threads)
+
+add_executable(pipeline_bench bench/pipeline_bench.cpp)
+target_link_libraries(pipeline_bench PRIVATE meridian_core Threads::Threads)
