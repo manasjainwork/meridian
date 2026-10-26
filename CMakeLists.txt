@@ -63,3 +63,9 @@ target_compile_definitions(book_bench_linear PRIVATE MERIDIAN_BOOK_LINEAR_SCAN)
 add_executable(book_sparse_bench_linear bench/book_sparse_bench.cpp)
 target_link_libraries(book_sparse_bench_linear PRIVATE meridian_core)
 target_compile_definitions(book_sparse_bench_linear PRIVATE MERIDIAN_BOOK_LINEAR_SCAN)
+
+add_executable(empty_tail bench/empty_tail.cpp)
+target_link_libraries(empty_tail PRIVATE meridian_core)
+
+add_executable(tlb_probe bench/tlb_probe.cpp)
+target_link_libraries(tlb_probe PRIVATE meridian_core)
