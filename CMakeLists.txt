@@ -90,3 +90,10 @@ target_link_libraries(replay_bench PRIVATE meridian_core)
 
 add_executable(journal_pipeline_bench bench/journal_pipeline_bench.cpp)
 target_link_libraries(journal_pipeline_bench PRIVATE meridian_core Threads::Threads)
+
+add_executable(test_replication tests/test_replication.cpp)
+target_link_libraries(test_replication PRIVATE meridian_core Threads::Threads)
+add_test(NAME replication COMMAND test_replication)
+
+add_executable(repl_pipeline_bench bench/repl_pipeline_bench.cpp)
+target_link_libraries(repl_pipeline_bench PRIVATE meridian_core Threads::Threads)
