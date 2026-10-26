@@ -87,3 +87,6 @@ add_test(NAME replay COMMAND test_replay)
 
 add_executable(replay_bench bench/replay_bench.cpp)
 target_link_libraries(replay_bench PRIVATE meridian_core)
+
+add_executable(journal_pipeline_bench bench/journal_pipeline_bench.cpp)
+target_link_libraries(journal_pipeline_bench PRIVATE meridian_core Threads::Threads)

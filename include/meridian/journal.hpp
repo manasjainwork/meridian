@@ -91,11 +91,11 @@ public:
         }
     }
 
-private:
     struct Header { char magic[8]; uint32_t record_size; uint32_t endian; };
     static constexpr Header kRef{{'M', 'R', 'D', 'N', 'J', 'R', 'N', '1'}, sizeof(Record), 0x01020304u};
     static Header make_header() { return kRef; }
 
+private:
     void push(Record r) {
         r.seq = recs_.size() + 1;
         r.crc = record_crc(r);
