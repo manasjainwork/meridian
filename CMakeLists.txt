@@ -25,3 +25,9 @@ target_link_libraries(parse_bench PRIVATE meridian_core)
 add_executable(test_endianness tests/test_endianness.cpp)
 target_link_libraries(test_endianness PRIVATE meridian_core)
 add_test(NAME endianness COMMAND test_endianness)
+
+add_executable(exchange_sim src/exchange_sim.cpp)
+target_link_libraries(exchange_sim PRIVATE meridian_core)
+
+add_executable(order_client src/order_client.cpp)
+target_link_libraries(order_client PRIVATE meridian_core)
