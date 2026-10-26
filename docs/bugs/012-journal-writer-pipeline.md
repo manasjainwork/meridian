@@ -17,8 +17,9 @@ digest (db0a4bebee34aab4) as a single-thread reference. `journal-full spins` was
   At 4-8 M/s async p99 was higher than none in 4 of 6 runs; not conclusive.
 
 ## Not established
-- Durability of the gated mode on this machine: gated p50 of ~1 us is far below a real disk
-  flush, so fdatasync under WSL2 may only reach the host cache. Needs a direct fdatasync
-  measurement and, for a real claim, bare-metal Linux.
+- Durability of the gated mode on this machine: MEASURED, not durable. fdatasync of a 4 KB append
+  took p50 0.4 us, p99 1.1 us, max 41 us (2000 runs, /tmp under WSL2). That is syscall overhead,
+  not a disk flush, so fdatasync here does not reach stable storage. The gated latency (~1 us p50)
+  therefore measures the writer-thread handshake only. A real durability cost needs bare-metal Linux.
 - Whether async journaling raises p99 (inconclusive).
 - Behaviour above 8 M orders/s and for runs longer than 400k orders.
