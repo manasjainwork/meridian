@@ -69,3 +69,11 @@ target_link_libraries(empty_tail PRIVATE meridian_core)
 
 add_executable(tlb_probe bench/tlb_probe.cpp)
 target_link_libraries(tlb_probe PRIVATE meridian_core)
+
+find_package(Threads REQUIRED)
+add_executable(test_spsc tests/test_spsc.cpp)
+target_link_libraries(test_spsc PRIVATE meridian_core Threads::Threads)
+add_test(NAME spsc COMMAND test_spsc)
+
+add_executable(queue_bench bench/queue_bench.cpp)
+target_link_libraries(queue_bench PRIVATE meridian_core Threads::Threads)
