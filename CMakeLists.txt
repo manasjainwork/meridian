@@ -35,3 +35,10 @@ target_link_libraries(order_client PRIVATE meridian_core)
 add_executable(test_order_id tests/test_order_id.cpp)
 target_link_libraries(test_order_id PRIVATE meridian_core)
 add_test(NAME order_id COMMAND test_order_id)
+
+add_executable(test_order_book tests/test_order_book.cpp)
+target_link_libraries(test_order_book PRIVATE meridian_core)
+add_test(NAME order_book COMMAND test_order_book)
+
+add_executable(book_bench bench/book_bench.cpp)
+target_link_libraries(book_bench PRIVATE meridian_core)
