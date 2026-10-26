@@ -21,3 +21,7 @@ add_test(NAME protocol COMMAND test_protocol)
 
 add_executable(parse_bench bench/parse_bench.cpp)
 target_link_libraries(parse_bench PRIVATE meridian_core)
+
+add_executable(test_endianness tests/test_endianness.cpp)
+target_link_libraries(test_endianness PRIVATE meridian_core)
+add_test(NAME endianness COMMAND test_endianness)
