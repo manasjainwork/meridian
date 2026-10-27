@@ -53,13 +53,26 @@ flowchart LR
 
 ## Measurements
 
-All numbers so far come from WSL2. They are valid for comparing variants against each other on this machine; they are **not** valid as absolute latency or durability claims.
+Environment: WSL2, i5-11400H, TSC 2.688 GHz, open-loop load, at least 3 runs per row. These numbers compare variants on one machine. They are **not** absolute latency or durability claims; bare-metal Linux is still to do.
 
-1. Best-price lookup on a sparse book: bitmap p50 20.1 ns / p99 21.6 ns, versus a linear scan at p50 26,478 ns / p99 57,844 ns (`docs/bugs/007`).
-2. `fdatasync` on WSL2 has p50 0.4 µs, so it is effectively a no-op there. Any "durable commit" latency from this environment is meaningless (`docs/bugs/012`).
-3. Raft election: 3600 chaos seeds, 0 safety violations (`docs/bugs/014`).
+| What | Result | Write-up |
+|---|---|---|
+| Order book op (single thread, 400k ops) | p50 23-39 ns; p99 5-7x the median; p99.9 about 20x | [006](docs/bugs/006-order-book-baseline.md) |
+| Best-price lookup, sparse book | bitmap p50 20.1 ns / p99 21.6 ns vs linear scan p50 26,478 ns / p99 57,844 ns | [007](docs/bugs/007-bitmap-best-price.md) |
+| SPSC vs mutex queue, round trip | mutex/SPSC about 4-5x at p50, 7-16x at p99; SPSC p99.9 about 1.6-1.7 us, cause unknown | [009](docs/bugs/009-spsc-vs-mutex.md) |
+| SPSC throughput | bimodal: ~17-30 M items/s in 7 runs, ~175-325 M items/s in 9 runs; no single number claimed | [009](docs/bugs/009-spsc-vs-mutex.md) |
+| Pipeline (client, book, ack), 0.5-8 M orders/s | p50 230-320 ns; p99 6-20 us at 2 M/s, 34-52 us at 4 M/s, 60-137 us at 8 M/s | [010](docs/bugs/010-pipeline-baseline.md) |
+| Pipeline saturation | between 12 and 16 M orders/s (burst of 400k orders, exact point not established) | [010](docs/bugs/010-pipeline-baseline.md) |
+| Journal append | p50 59-65 ns, p99 65-387 ns, p99.9 1.2-1.35 us; costs more than the book op itself | [011](docs/bugs/011-journal-replay.md) |
+| Journal in pipeline, p50 | none 221-419 ns, async 252-513 ns, gated 722-2240 ns; p99 noisy and inconclusive | [012](docs/bugs/012-journal-writer-pipeline.md) |
+| Replication, p50 | none 201-355 ns, async 207-398 ns, gated 9.1-29.1 us (typically 10-18 us) | [013](docs/bugs/013-journal-replication.md) |
+| Replication correctness | 48 of 48 replicated runs: replica digest equals the single-thread reference | [013](docs/bugs/013-journal-replication.md) |
+| Raft election | 3600 chaos seeds, 0 safety violations; 5 of 5 injected bugs caught | [014](docs/bugs/014-raft-election-simulation.md) |
 
-Full tables, with p50/p99/p99.9 per benchmark, are in the write-ups under `docs/bugs/`.
+Caveats that matter:
+1. `fdatasync` on WSL2 has p50 0.4 us, so it is effectively a no-op there. The "gated" modes measure the software path, not durable storage ([012](docs/bugs/012-journal-writer-pipeline.md)).
+2. Each pipeline rate sends only 400k orders, so these are burst measurements, not sustained throughput.
+3. Single runs showed outliers of milliseconds; the tail is not yet explained.
 
 ## Not established yet
 
