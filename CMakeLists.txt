@@ -105,3 +105,6 @@ add_test(NAME raft_election COMMAND test_raft_election)
 add_executable(test_raft_replication tests/test_raft_replication.cpp)
 target_include_directories(test_raft_replication PRIVATE include)
 add_test(NAME raft_replication COMMAND test_raft_replication)
+
+add_executable(demo src/demo.cpp)
+target_include_directories(demo PRIVATE include)
