@@ -31,17 +31,16 @@ static NodeId stable_leader(const Sim& s) { NodeId l = kNone; s.stable(&l); retu
 
 struct ChaosStats { uint64_t seeds = 0, with_leader = 0, multi_term_leaders = 0, delivered = 0; Term max_term = 0; };
 
-// Random faults for `n_steps` ms. Safety only: nothing here promises progress.
-static void chaos(Sim& s, uint32_t n, uint64_t n_steps) {
-    for (uint64_t i = 0; i < n_steps && s.ok(); ++i) {
-        const uint64_t roll = s.rand() % 100000;
-        if (roll < 200) { const NodeId v = static_cast<NodeId>(s.rand() % n); if (s.alive(v)) s.crash(v); }
-        else if (roll < 1200) { const NodeId v = static_cast<NodeId>(s.rand() % n); if (!s.alive(v)) s.restart(v); }
-        else if (roll < 1500) { std::vector<uint8_t> g(n); for (auto& x : g) x = static_cast<uint8_t>(s.rand() % 3); s.set_groups(g); }
-        else if (roll < 2000) s.heal();
-        s.step();
-    }
+// One millisecond of random faults. Safety only: nothing here promises progress.
+static void chaos_step(Sim& s, uint32_t n) {
+    const uint64_t roll = s.rand() % 100000;
+    if (roll < 200) { const NodeId v = static_cast<NodeId>(s.rand() % n); if (s.alive(v)) s.crash(v); }
+    else if (roll < 1200) { const NodeId v = static_cast<NodeId>(s.rand() % n); if (!s.alive(v)) s.restart(v); }
+    else if (roll < 1500) { std::vector<uint8_t> g(n); for (auto& x : g) x = static_cast<uint8_t>(s.rand() % 3); s.set_groups(g); }
+    else if (roll < 2000) s.heal();
+    s.step();
 }
+static void chaos(Sim& s, uint32_t n, uint64_t n_steps) { for (uint64_t i = 0; i < n_steps && s.ok(); ++i) chaos_step(s, n); }
 
 static NetConfig rough_net() { NetConfig n; n.drop_pct = 15; n.dup_pct = 10; n.delay_min = 1; n.delay_max = 100; return n; }
 
@@ -118,11 +117,11 @@ int main() {
             Node n(0, cfg, Persistent{}, 1, 0);
             out.clear();
             n.tick(1000, out);                                                          // candidate, term 1
-            n.on_message({MsgType::Heartbeat, 3, 0, 0, 0, 0, false}, 1001, out);
+            n.on_message({MsgType::AppendEntries, 3, 0, 0, 0, 0, false}, 1001, out);
             CHECK(n.role() == Role::Candidate && !out.back().ok && out.back().term == 1);
-            n.on_message({MsgType::Heartbeat, 3, 0, 1, 0, 0, false}, 1002, out);
+            n.on_message({MsgType::AppendEntries, 3, 0, 1, 0, 0, false}, 1002, out);
             CHECK(n.role() == Role::Follower && n.leader() == 3 && out.back().ok);
-            n.on_message({MsgType::Heartbeat, 4, 0, 9, 0, 0, false}, 1003, out);
+            n.on_message({MsgType::AppendEntries, 4, 0, 9, 0, 0, false}, 1003, out);
             CHECK(n.term() == 9 && n.leader() == 4);
         }
         {   // a leader that sees a higher term steps down
@@ -240,8 +239,15 @@ int main() {
             for (uint64_t seed = 0; seed < 300; ++seed) {
                 Config cfg; cfg.n = 5;
                 Sim s(cfg, 1000 + seed, rough_net(), logs);
-                chaos(s, 5, 3000);
-                CHECK(s.ok() && !s.ever_leader(0));
+                // Node 0 must not win while its log is behind. Once a leader has overwritten or extended its log it is no
+                // longer behind, and may legitimately win later, so the check stops at that moment.
+                const std::vector<Entry> initial = s.disk_log(0);
+                for (int i = 0; i < 3000 && s.ok(); ++i) {
+                    chaos_step(s, 5);
+                    if (s.ever_leader(0)) { CHECK(!"stale node became leader"); break; }
+                    if (!(s.disk_log(0) == initial)) break;
+                }
+                CHECK(s.ok());
                 if (g_fail) break;
             }
             for (uint64_t seed = 0; seed < 50; ++seed) {
@@ -319,8 +325,12 @@ int main() {
             for (uint64_t seed = 0; seed < 300 && !caught; ++seed) {
                 Config cfg; cfg.n = 5; cfg.bugs = kSkipLogCheck;
                 Sim s(cfg, 1000 + seed, rough_net(), logs);
-                chaos(s, 5, 3000);
-                caught = s.ever_leader(0);
+                const std::vector<Entry> initial = s.disk_log(0);
+                for (int i = 0; i < 3000 && s.ok() && !caught; ++i) {      // same stop rule as the clean test above
+                    chaos_step(s, 5);
+                    if (s.ever_leader(0)) caught = true;
+                    else if (!(s.disk_log(0) == initial)) break;
+                }
             }
             std::printf("  mutant 'skip the log up-to-date check': %s\n", caught ? "caught (stale node won an election)" : "NOT DETECTED");
             CHECK(caught);
