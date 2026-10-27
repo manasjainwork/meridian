@@ -97,3 +97,7 @@ add_test(NAME replication COMMAND test_replication)
 
 add_executable(repl_pipeline_bench bench/repl_pipeline_bench.cpp)
 target_link_libraries(repl_pipeline_bench PRIVATE meridian_core Threads::Threads)
+
+add_executable(test_raft_election tests/test_raft_election.cpp)
+target_include_directories(test_raft_election PRIVATE include)
+add_test(NAME raft_election COMMAND test_raft_election)
