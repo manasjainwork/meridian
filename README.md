@@ -1,4 +1,4 @@
-# Meridian
+# Meridian by MANAS JAIN
 
 A matching engine in C++20, built the way a trading firm would build one: every component has a design doc, a deterministic test, a fuzzer or a simulator, and a write-up that separates what was measured from what is only a hypothesis.
 
