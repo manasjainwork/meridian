@@ -108,3 +108,12 @@ add_test(NAME raft_replication COMMAND test_raft_replication)
 
 add_executable(demo src/demo.cpp)
 target_include_directories(demo PRIVATE include)
+
+add_executable(test_order_types tests/test_order_types.cpp)
+target_include_directories(test_order_types PRIVATE include)
+add_test(NAME order_types COMMAND test_order_types)
+
+add_executable(test_order_types_linear tests/test_order_types.cpp)
+target_include_directories(test_order_types_linear PRIVATE include)
+target_compile_definitions(test_order_types_linear PRIVATE MERIDIAN_BOOK_LINEAR_SCAN=1)
+add_test(NAME order_types_linear COMMAND test_order_types_linear)
