@@ -194,7 +194,7 @@ int main() {
         CHECK(stable_leader(s) == l2 && s.node(l1).role() == Role::Follower && s.ok());
     }
     {   // CHARACTERISATION of a known weakness: a follower cut off for a while keeps raising its term; when it comes back
-        // it forces the healthy leader to step down. This is what pre-vote (next step) removes; the assertion flips then.
+        // it forces the healthy leader to step down. Pre-vote (opt-in, see test_raft_prevote) removes it; this test keeps the default behaviour.
         Config cfg; cfg.n = 5;
         Sim s(cfg, 41);
         CHECK(run_until_stable(s, 3000));
@@ -211,7 +211,7 @@ int main() {
         s.heal();
         CHECK(run_until_stable(s, 6000));
         CHECK(s.node(stable_leader(s)).term() >= runaway);                              // disruption: everyone jumped to the runaway term
-        std::printf("  characterisation: isolated node pushed term %llu -> %llu, healthy leader was deposed on heal (pre-vote will fix)\n",
+        std::printf("  characterisation: isolated node pushed term %llu -> %llu, healthy leader was deposed on heal (pre-vote is opt-in: see test_raft_prevote)\n",
                     static_cast<unsigned long long>(t1), static_cast<unsigned long long>(runaway));
     }
     {   // without a majority nobody can win; with a majority again, a leader appears

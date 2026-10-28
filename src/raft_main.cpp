@@ -48,7 +48,7 @@ bool decode(const uint8_t* p, size_t len, uint32_t n_nodes, Message* m) {
     uint8_t t, ok; uint32_t ne;
     get(&t, 1); get(&m->from, 4); get(&m->to, 4); get(&m->term, 8); get(&m->last_log_index, 8);
     get(&m->last_log_term, 8); get(&ok, 1); get(&m->leader_commit, 8); get(&m->match_index, 8); get(&ne, 4);
-    if (t > 3 || m->from >= n_nodes || ne > 4096 || len != kHead + (size_t)ne * 16) return false;
+    if (t > 5 || m->from >= n_nodes || ne > 4096 || len != kHead + (size_t)ne * 16) return false;
     m->type = (MsgType)t; m->ok = ok != 0;
     m->entries.clear();
     for (uint32_t i = 0; i < ne; ++i) { Entry e; get(&e.term, 8); get(&e.cmd, 8); m->entries.push_back(e); }
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
     std::vector<sockaddr_in> peer(n);
     for (uint32_t j = 0; j < n; ++j) { peer[j] = me; peer[j].sin_port = htons((uint16_t)(base + j)); }
 
-    Config cfg; cfg.n = n;
+    Config cfg; cfg.n = n; cfg.prevote = true; cfg.check_quorum = true;
     const auto t0 = clk::now();
     auto now_ms = [&] { return (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(clk::now() - t0).count(); };
     Persistent disk = load(path);
@@ -182,7 +182,7 @@ int main(int argc, char** argv) {
                       node.leader() == kNone ? -1 : (int)node.leader(), node.persistent().log.size(), (unsigned long long)node.commit_index(),
                       (unsigned long long)applied, (unsigned long long)rep.applied(), rep.book().size(), (unsigned long long)rep.trades(),
                       (unsigned long long)rep.digest());
-        if (line != last_line || now_ms() - last_print >= 1000) {
+        if (line != last_line || now_ms() - last_print >= 5000) {
             std::printf("%s\n", line); std::fflush(stdout);
             last_line = line; last_print = now_ms();
         }

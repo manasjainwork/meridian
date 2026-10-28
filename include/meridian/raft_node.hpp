@@ -10,7 +10,7 @@ using Term = uint64_t;
 constexpr NodeId kNone = 0xFFFFFFFFu;
 
 enum class Role : uint8_t { Follower, Candidate, Leader };
-enum class MsgType : uint8_t { RequestVote, VoteReply, AppendEntries, AppendReply };
+enum class MsgType : uint8_t { RequestVote, VoteReply, AppendEntries, AppendReply, PreVote, PreVoteReply };
 
 // One log entry. cmd 0 is reserved for the no-op a new leader appends.
 struct Entry {
@@ -24,6 +24,8 @@ struct Entry {
 //   RequestVote:   last_log_index / last_log_term = the candidate's last entry
 //   VoteReply:     ok = vote granted
 //   AppendEntries: last_log_index / last_log_term = the entry just BEFORE `entries` (prev), leader_commit, entries
+//   PreVote:       like RequestVote, but term = the term the sender WOULD start (its term + 1); nothing is changed by receiving it
+//   PreVoteReply:  ok = would vote; term = the proposed term when ok, the receiver's own term when not
 //   AppendReply:   ok = accepted; match_index = (ok) last index verified equal to the leader's log
 //                                                (!ok) hint: the follower's log length, bounded by prev - 1
 struct Message {
@@ -52,6 +54,8 @@ enum Bug : uint32_t {
     kTruncateOnAppend = 128,         // delete the log suffix on every AppendEntries, even when it already matches
     kCommitSmallQuorum = 256,        // commit with n/2 replicas instead of n/2 + 1
     kFollowerCommitUnbounded = 512,  // follower sets commit = leader_commit, not min(leader_commit, last new entry)
+    kNoLeaderStickiness = 1024,      // pre-vote is granted even though a leader was heard from a moment ago
+    kPreVoteAdoptsTerm = 2048,       // granting a pre-vote changes the receiver's term (it must change nothing)
 };
 
 struct Config {
@@ -61,6 +65,8 @@ struct Config {
     uint32_t heartbeat_ms = 50;
     uint32_t max_batch = 64;         // entries per AppendEntries
     bool noop = true;                // a new leader appends a no-op in its term (the paper's variant has none; used to build Figure 8)
+    bool prevote = false;            // before a real election, ask whether a majority would vote; the term is raised only if yes
+    bool check_quorum = false;       // a leader that has not heard from a majority for election_max_ms steps down
     uint32_t bugs = kNoBug;
 };
 
@@ -83,9 +89,14 @@ public:
 
     void tick(uint64_t now, std::vector<Message>& out) {
         if (role_ == Role::Leader) {
+            if (cfg_.check_quorum && now >= cq_deadline_) {
+                if (__builtin_popcountll(cq_mask_ | (1ull << id_)) < static_cast<int>(quorum())) { step_down(now); return; }
+                cq_mask_ = 0;
+                cq_deadline_ = now + cfg_.election_max_ms;
+            }
             if (now >= next_hb_) broadcast(now, out);
         } else if (now >= deadline_) {
-            start_election(now, out);
+            if (cfg_.prevote) start_prevote(now, out); else start_election(now, out);
         }
     }
 
@@ -100,12 +111,14 @@ public:
     }
 
     void on_message(const Message& m, uint64_t now, std::vector<Message>& out) {
-        if (m.term > p_.current_term) {                      // a newer term always wins
+        const bool is_prevote_msg = m.type == MsgType::PreVote || (m.type == MsgType::PreVoteReply && m.ok);   // these carry a FUTURE term
+        if (m.term > p_.current_term && !is_prevote_msg) {   // a newer term always wins
             p_.current_term = m.term;
             p_.voted_for = kNone;
             ++pv_;
             role_ = Role::Follower;
             leader_ = kNone;
+            pre_active_ = false;
         }
         switch (m.type) {
         case MsgType::RequestVote: {
@@ -123,6 +136,25 @@ public:
             out.push_back({MsgType::VoteReply, id_, m.from, p_.current_term, 0, 0, grant});
             break;
         }
+        case MsgType::PreVote: {
+            // Would I vote for this node in a real election? Answer without changing term, vote or timers.
+            const bool heard_leader = !(cfg_.bugs & kNoLeaderStickiness) &&
+                                      (role_ == Role::Leader || (have_contact_ && now < last_leader_contact_ + cfg_.election_min_ms));
+            const bool grant = m.term > p_.current_term && !heard_leader && candidate_log_up_to_date(m);
+            if ((cfg_.bugs & kPreVoteAdoptsTerm) && grant) {
+                p_.current_term = m.term; p_.voted_for = kNone; ++pv_;
+                role_ = Role::Follower; leader_ = kNone; deadline_ = now + random_timeout();
+            }
+            out.push_back({MsgType::PreVoteReply, id_, m.from, grant ? m.term : p_.current_term, 0, 0, grant});
+            break;
+        }
+        case MsgType::PreVoteReply:
+            if (pre_active_ && role_ != Role::Leader && m.ok && m.term == pre_term_ && pre_term_ == p_.current_term + 1 &&
+                !(pre_mask_ & (1ull << m.from))) {
+                pre_mask_ |= 1ull << m.from;
+                if (++pre_votes_ >= quorum()) { pre_active_ = false; start_election(now, out); }
+            }
+            break;
         case MsgType::VoteReply:
             if (role_ == Role::Candidate && m.term == p_.current_term && m.ok) {
                 if (cfg_.bugs & kCountDuplicateVotes) {
@@ -162,7 +194,27 @@ private:
         return m.last_log_term > my_last_term || (m.last_log_term == my_last_term && m.last_log_index >= my_last_index);
     }
 
+    void start_prevote(uint64_t now, std::vector<Message>& out) {
+        pre_active_ = true;
+        pre_term_ = p_.current_term + 1;
+        pre_mask_ = 1ull << id_;
+        pre_votes_ = 1;
+        deadline_ = now + random_timeout();                  // if this round fails we simply try again later; the term did not move
+        if (pre_votes_ >= quorum()) { pre_active_ = false; start_election(now, out); return; }
+        const Term last_term = term_at(p_.log.size());
+        for (NodeId peer = 0; peer < cfg_.n; ++peer)
+            if (peer != id_) out.push_back({MsgType::PreVote, id_, peer, pre_term_, p_.log.size(), last_term, false});
+    }
+
+    void step_down(uint64_t now) {
+        role_ = Role::Follower;
+        leader_ = kNone;
+        pre_active_ = false;
+        deadline_ = now + random_timeout();
+    }
+
     void start_election(uint64_t now, std::vector<Message>& out) {
+        pre_active_ = false;
         ++p_.current_term;
         p_.voted_for = id_;
         ++pv_;
@@ -184,6 +236,8 @@ private:
         if (cfg_.noop) { p_.log.push_back(Entry{p_.current_term, 0}); ++pv_; }
         next_.assign(cfg_.n, cfg_.noop ? p_.log.size() : p_.log.size() + 1);   // optimistic: send only what is new
         match_.assign(cfg_.n, 0);
+        cq_mask_ = 0;
+        cq_deadline_ = now + cfg_.election_max_ms;
         advance_commit();
         broadcast(now, out);
     }
@@ -209,6 +263,9 @@ private:
         if (role_ == Role::Leader) return;                   // cannot happen: one leader per term
         role_ = Role::Follower;
         leader_ = m.from;
+        pre_active_ = false;
+        last_leader_contact_ = now;
+        have_contact_ = true;
         deadline_ = now + random_timeout();
         const uint64_t prev = m.last_log_index;
         const bool match = (cfg_.bugs & kNoPrevCheck) || prev == 0 || (prev <= p_.log.size() && term_at(prev) == m.last_log_term);
@@ -238,6 +295,7 @@ private:
 
     void on_append_reply(const Message& m, uint64_t, std::vector<Message>& out) {
         if (role_ != Role::Leader || m.term != p_.current_term) return;
+        cq_mask_ |= 1ull << m.from;                          // it answered in our term: alive and reachable
         if (m.ok) {
             match_[m.from] = std::max(match_[m.from], m.match_index);
             next_[m.from] = std::max(next_[m.from], match_[m.from] + 1);
@@ -283,6 +341,12 @@ private:
     uint64_t deadline_ = 0, next_hb_ = 0;
     uint64_t vote_mask_ = 0;
     uint32_t votes_ = 0;
+    uint64_t last_leader_contact_ = 0;                       // volatile: time of the last valid AppendEntries
+    bool have_contact_ = false;
+    bool pre_active_ = false;                                // a pre-vote round is open
+    Term pre_term_ = 0;
+    uint64_t pre_mask_ = 0, cq_mask_ = 0, cq_deadline_ = 0;
+    uint32_t pre_votes_ = 0;
     uint64_t commit_ = 0;                                    // volatile: rebuilt after a restart
     uint64_t pv_ = 1;
     std::vector<uint64_t> next_, match_;                     // leader only
