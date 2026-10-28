@@ -117,3 +117,6 @@ add_executable(test_order_types_linear tests/test_order_types.cpp)
 target_include_directories(test_order_types_linear PRIVATE include)
 target_compile_definitions(test_order_types_linear PRIVATE MERIDIAN_BOOK_LINEAR_SCAN=1)
 add_test(NAME order_types_linear COMMAND test_order_types_linear)
+
+add_executable(live src/live.cpp)
+target_include_directories(live PRIVATE include)
