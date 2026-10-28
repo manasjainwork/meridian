@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meridian live</title>
+<style>
+:root{--bg:#0f1318;--panel:#171d25;--ink:#e6edf3;--mut:#8b98a5;--bid:#4c9be8;--ask:#f0a04b;--p50:#5fd0a5;--p99:#e8c14c;--p999:#d977c4;--line:#27313c}
+@media (prefers-color-scheme:light){:root{--bg:#f4f6f8;--panel:#fff;--ink:#14202b;--mut:#5d6b78;--bid:#1f6fc4;--ask:#c4731a;--p50:#14916a;--p99:#a8860f;--p999:#b3359c;--line:#dde3e9}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,sans-serif;padding:16px}
+h1{font-size:18px;margin:0 0 2px}.sub{color:var(--mut);font-size:12px;margin-bottom:12px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px}
+.tile,.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.tile b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.tile span{color:var(--mut);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+h2{font-size:13px;margin:0 0 8px;color:var(--mut);font-weight:600}
+.row{position:relative;display:grid;grid-template-columns:52px 1fr 70px;gap:8px;align-items:center;height:20px;font-variant-numeric:tabular-nums;font-size:12px}
+.row i{display:block;height:12px;border-radius:2px;min-width:1px;transition:width .3s ease}.row .q{text-align:right;color:var(--mut)}
+.spread{height:22px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:12px;border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);margin:2px 0}
+canvas{width:100%;height:220px;display:block}
+.leg{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-top:6px;flex-wrap:wrap}.leg u{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;text-decoration:none}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:12px}td{padding:2px 4px}th{color:var(--mut);text-align:left;font-weight:500;padding:2px 4px}
+.note{color:var(--mut);font-size:12px;margin-top:12px}
+</style></head><body>
+<h1>Meridian live</h1>
+<div class="sub" id="status">connecting...</div>
+<div class="tiles">
+ <div class="tile"><b id="ops">-</b><span>orders / s</span></div>
+ <div class="tile"><b id="trd">-</b><span>trades / s</span></div>
+ <div class="tile"><b id="p50">-</b><span>p50 ns (last 100 ms)</span></div>
+ <div class="tile"><b id="p99">-</b><span>p99 ns</span></div>
+ <div class="tile"><b id="rest">-</b><span>resting orders</span></div>
+ <div class="tile"><b id="vol">-</b><span>total volume</span></div>
+</div>
+<div class="grid">
+ <div class="card"><h2>Order book (qty per price)</h2><div id="asks"></div><div class="spread" id="spread"></div><div id="bids"></div></div>
+ <div class="card"><h2>Engine call latency, last 30 s (log scale, ns)</h2><canvas id="cv"></canvas>
+  <div class="leg"><span><u style="background:var(--p50)"></u>p50</span><span><u style="background:var(--p99)"></u>p99</span><span><u style="background:var(--p999)"></u>p99.9</span></div></div>
+ <div class="card"><h2>Recent trades</h2><table><thead><tr><th>#</th><th>price</th><th>qty</th><th>aggressor</th></tr></thead><tbody id="tr"></tbody></table></div>
+</div>
+<div class="note">Latency is service time inside the engine call (rdtsc, one thread), not end-to-end. WSL2, synthetic random orders, one run: a demo, not a benchmark. Browser polls every 100 ms; the engine never waits for it.</div>
+<script>
+const $=id=>document.getElementById(id),fmt=n=>Number(n).toLocaleString('en-US');
+const H={p50:[],p99:[],p999:[]},N=300;let fails=0;
+let scale=1,lastUI=0;const SLOTS=10;
+function ladder(d){ // fixed 10 ask rows (high to low) and 10 bid rows; empty price = empty row, so nothing jumps
+  const m=new Map(d.levels.map(l=>[l[0],l]));
+  const A=[],B=[];
+  for(let i=SLOTS-1;i>=0;i--){const p=d.ask+i,l=m.get(p);A.push([p,l?l[2]:0]);}
+  for(let i=0;i<SLOTS;i++){const p=d.bid-i,l=m.get(p);B.push([p,l?l[1]:0]);}
+  const cur=Math.max(1,...A.map(x=>x[1]),...B.map(x=>x[1]));
+  scale=Math.max(cur,scale*0.97);                    // grows at once, shrinks slowly: bars do not rescale every frame
+  const row=(x,c)=>`<div class="row"><span>${x[0]}</span><i style="width:${(100*x[1]/scale).toFixed(1)}%;background:var(--${c})"></i><span class="q">${x[1]?fmt(x[1]):''}</span></div>`;
+  return [A.map(x=>row(x,'ask')).join(''),B.map(x=>row(x,'bid')).join('')];
+}
+function draw(){
+  const c=$('cv'),r=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*r;c.height=h*r;
+  const x=c.getContext('2d');x.scale(r,r);x.clearRect(0,0,w,h);
+  const css=getComputedStyle(document.documentElement),col=k=>css.getPropertyValue(k).trim();
+  const lo=Math.log10(10),hi=Math.log10(10000),L=34,B=18;
+  const Y=v=>h-B-(Math.log10(Math.max(10,Math.min(10000,v)))-lo)/(hi-lo)*(h-B-6);
+  x.font='11px system-ui';x.fillStyle=col('--mut');x.strokeStyle=col('--line');x.lineWidth=1;
+  for(const g of [10,100,1000,10000]){x.beginPath();x.moveTo(L,Y(g));x.lineTo(w,Y(g));x.stroke();x.fillText(fmt(g),2,Y(g)+(g===10000?11:-2));}
+  for(const [k,cl] of [['p50','--p50'],['p99','--p99'],['p999','--p999']]){
+    const a=H[k];if(a.length<2)continue;x.strokeStyle=col(cl);x.lineWidth=1.8;x.beginPath();
+    a.forEach((v,i)=>{const px=L+(w-L)*i/(N-1)+(w-L)*(N-a.length)/(N-1);i?x.lineTo(px,Y(v)):x.moveTo(px,Y(v));});x.stroke();}
+}
+async function tick(){
+  try{
+    const d=await (await fetch('/data',{cache:'no-store'})).json();fails=0;
+    if(!d.levels){return;}
+    for(const k of ['p50','p99','p999']){H[k].push(d[k]);if(H[k].length>N)H[k].shift();}
+    draw();
+    const now=performance.now();if(now-lastUI<350)return;lastUI=now;      // numbers, book and trades refresh ~3x per second
+    $('status').textContent=`running ${d.t.toFixed(1)} s, ${fmt(d.ops)} orders processed`;
+    $('ops').textContent=fmt(d.ops_s);$('trd').textContent=fmt(d.trades_s);$('p50').textContent=fmt(d.p50);$('p99').textContent=fmt(d.p99);
+    $('rest').textContent=fmt(d.resting);$('vol').textContent=fmt(d.volume);
+    if(d.bid&&d.ask){const [A,B]=ladder(d);$('asks').innerHTML=A;$('bids').innerHTML=B;}
+    $('spread').textContent=`bid ${d.bid}  |  ask ${d.ask}  |  spread ${d.ask&&d.bid?d.ask-d.bid:'-'}`;
+    $('tr').innerHTML=d.recent.slice().reverse().slice(0,12).map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td><td>${t[2]}</td><td>${t[3]?'buyer':'seller'}</td></tr>`).join('');
+  }catch(e){if(++fails>3)$('status').textContent='disconnected: is ./build/web still running?';}
+}
+setInterval(tick,100);addEventListener('resize',draw);
+</script></body></html>

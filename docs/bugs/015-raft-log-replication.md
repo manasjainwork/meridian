@@ -7,7 +7,7 @@
 4. `test_raft_election.cpp` was adapted: `Heartbeat` became `AppendEntries`, and the "stale-log node never wins" check now stops once a leader has changed that node's log (afterwards it may legitimately win).
 
 ## 2. Results (reproduced on my machine: 3 identical runs, plus ASan/UBSan run of the replication test, 2m8s, no reports)
-1. Chaos safety (n = 3, 5, 7; 3000 seeds; 15% drop, 10% dup, 1 to 100 ms delay, crashes, partitions, client commands): 0 violations. 187,082 commands proposed, 167,434 committed, 1,480 seeds-events where an existing log entry was removed or replaced, 2,988 of 3000 seeds committed something, 2,849,193 messages.
+1. Chaos safety (n = 3, 5, 7; 3000 seeds; 15% drop, 10% dup, 1 to 100 ms delay, crashes, partitions, client commands): 0 violations. 187,082 commands proposed, 167,434 committed, 1,480 times where an existing log entry was removed or replaced, 2,988 of 3000 seeds committed something, 2,849,193 messages.
 2. Same chaos with other message patterns (n = 5, 1000 seeds each): max_batch 1 / no-op on, max_batch 3 / no-op on, max_batch 64 / no-op off, max_batch 1 / no-op off: 0 violations in all four.
 3. Liveness: after chaos stops and the network is healed, 450 of 450 seeds elect a stable leader, commit 20 new commands, and all live nodes end with an identical log and the same commit index.
 4. Scripted scenarios pass: 100 commands on clusters of 1, 3, 5, 7 nodes committed in order; leader crash mid-stream keeps everything committed; a follower that missed 500 commands catches up through batched appends; a minority-partition leader's 10 uncommitted commands are overwritten after healing.

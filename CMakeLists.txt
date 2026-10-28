@@ -120,3 +120,7 @@ add_test(NAME order_types_linear COMMAND test_order_types_linear)
 
 add_executable(live src/live.cpp)
 target_include_directories(live PRIVATE include)
+add_executable(web src/web.cpp)
+target_include_directories(web PRIVATE include)
+find_package(Threads REQUIRED)
+target_link_libraries(web PRIVATE Threads::Threads)
