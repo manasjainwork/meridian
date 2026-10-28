@@ -22,7 +22,7 @@ Two observations motivated this.
 - the two bugs were caught by the cut-off scenarios: 11 of 80 runs (no stickiness) and 40 of 80 runs (adopts term)
 - `ctest`: 15 of 15 passed
 - failover on real processes (018 script) with both on, 3 runs, all PASS: first leader after 258, 322, 316 ms; election after kill -9 of the leader 187, 226, 117 ms (018 without pre-vote: 147, 141, 189 ms; three runs each overlap, so I cannot say pre-vote made it slower or faster)
-- one node started alone for 10 s on real processes, last STATE line: `STATE id=0 role=F term=103 leader=1 log=0 commit=0 applied=0 orders=0 resting=0 trades=0 digest=a774cec6ac63ddb4`
+- one node started alone for 10 s on real processes (port 7600, no other node running), last STATE line: `STATE id=0 role=F term=0 leader=-1 log=0 commit=0 applied=0 orders=0 resting=0 trades=0 digest=a774cec6ac63ddb4`
 
 ## What this does not show
 - Chaos commit counts differ between on and off (3 nodes: 9,328 on, 9,506 off; 5 nodes: 9,657 on, 8,477 off). These are single deterministic runs of one workload, not a performance comparison.
