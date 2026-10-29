@@ -13,3 +13,5 @@ Each item is something I saw and cannot yet explain. None of these is a result.
 9. Replication latency breakdown (10 to 18 us p50 for gated mode) is not split into its parts (013).
 10. In the live view, p50 fell from 83 ns to 30 ns within a 5-second run while the book stayed small. Cause unknown (frequency, WSL2, or cache warm-up).
 11. Raft: the figure-8 mutant is found only when entries trickle out one at a time (015). Why exactly is my explanation, not tested.
+12. Kraken v2 WebSocket connection dropped 3 times in one 30 s recording (ConnectionClosedError: no close frame; ConnectionResetError). Cause unknown: Kraken, WSL2 network, or the client's ping setting (ping_interval=20). Not tested.
+13. The Kraken checksum covers the top 10 levels only; the book was subscribed at depth 25. Levels 11 to 25 are not verified by it.
