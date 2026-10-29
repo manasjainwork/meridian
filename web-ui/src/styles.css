@@ -52,3 +52,13 @@ button.on { border-color:var(--acc); color:var(--acc); }
 .dot-buy { fill:var(--bid); } .dot-sell { fill:var(--ask); }
 .cross { stroke:var(--muted); stroke-dasharray:3 3; } .cross-dot { fill:var(--acc); }
 .axis.hov { fill:var(--fg); font-size:11px; }
+.seg { display:flex; gap:6px; margin-bottom:8px; } .seg.tabs { margin-bottom:12px; }
+.c-up line, .c-up rect { stroke:var(--bid); fill:var(--bid); } .c-down line, .c-down rect { stroke:var(--ask); fill:var(--ask); }
+.c-up rect.vol, .c-down rect.vol { opacity:.35; stroke:none; }
+.arch { display:grid; gap:12px; }
+.part { display:flex; gap:12px; padding:8px 0; border-top:1px solid var(--line); }
+.part:first-of-type { border-top:none; }
+.st { flex:none; width:64px; height:20px; text-align:center; font-size:11px; line-height:20px; border-radius:999px; border:1px solid var(--line); }
+.st.built { color:var(--bid); border-color:var(--bid); } .st.planned { color:var(--muted); }
+.flow .box { fill:var(--bg); stroke:var(--acc); } .flow .boxt { fill:var(--fg); font-size:11px; }
+.flow .arrow { stroke:var(--muted); stroke-width:1.5; }

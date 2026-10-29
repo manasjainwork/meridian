@@ -5,6 +5,7 @@
 
 frames: one per book message {t: ms since the first book message, b: [[price, qty] x15 best bids], a: same for asks}.
 trades: one per live trade message {t, s: "buy"|"sell", p: price, q: qty}; the snapshot of old trades Kraken sends first is skipped.
+--min-dt-ms keeps one frame per that many ms (each frame is a full book, so the file gets smaller and the picture is the same).
 --max-gap-ms shortens any silence in the recording longer than that (for a demo); the replay file says so ("gaps_capped_ms").
 Prices and quantities become floats here because the UI only draws them; the exact-decimal work is in check_book.py and the C++ mirror.
 """
@@ -17,7 +18,7 @@ from check_book import cut  # noqa: E402
 TOP = 15
 
 
-def main(src, dst, cap):
+def main(src, dst, cap, min_dt):
     depth, books, frames, trades, t0, symbol = 10, {}, [], [], None, ""
     with open(src) as f:
         for line in f:
@@ -67,8 +68,15 @@ def main(src, dst, cap):
             return x - shift
         for o in frames + trades: o["t"] = squeeze(o["t"])
     for o in frames + trades: o["t"] = round(o["t"], 1)
+    if min_dt > 0:                                     # keep one frame per min_dt ms; every frame is a full book, so nothing in between is needed
+        kept = [frames[0]]
+        for fr in frames[1:]:
+            if fr["t"] - kept[-1]["t"] >= min_dt: kept.append(fr)
+        if kept[-1] is not frames[-1]: kept.append(frames[-1])
+        frames = kept
     out = {"symbol": symbol, "depth": depth, "source": os.path.basename(src), "frames": frames, "trades": trades}
     if cap > 0: out["gaps_capped_ms"] = cap
+    if min_dt > 0: out["sampled_ms"] = min_dt
     os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
     with open(dst, "w") as g:
         json.dump(out, g, separators=(",", ":"))
@@ -77,6 +85,6 @@ def main(src, dst, cap):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("recording"); ap.add_argument("out"); ap.add_argument("--max-gap-ms", type=float, default=0)
+    ap.add_argument("recording"); ap.add_argument("out"); ap.add_argument("--max-gap-ms", type=float, default=0); ap.add_argument("--min-dt-ms", type=float, default=0)
     a = ap.parse_args()
-    main(a.recording, a.out, a.max_gap_ms)
+    main(a.recording, a.out, a.max_gap_ms, a.min_dt_ms)
