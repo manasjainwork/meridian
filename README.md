@@ -74,6 +74,26 @@ Caveats that matter:
 2. Each pipeline rate sends only 400k orders, so these are burst measurements, not sustained throughput.
 3. Single runs showed outliers of milliseconds; the tail is not yet explained.
 
+## What runs today
+
+| Part | How to run | Where the evidence is |
+|------|-----------|-----------------------|
+| Order book with GTC, IOC, FOK, market orders and modify | `ctest --test-dir build` | write-up 016 |
+| Terminal story demo and random flow | `./build/demo`, `./build/demo --random 1000000 --mix` | demo only, not a benchmark |
+| Live per-second view (ops/s, p50/p99/p99.9 of the engine call) | `./build/live --seconds 10 --mix` | demo only, WSL2, one thread |
+| Browser view of the book, latency and trades | `./build/web`, then open http://localhost:8080 | demo only, synthetic orders |
+| Raft election, replication, pre-vote, CheckQuorum on a deterministic simulator | `./build/test_raft_election`, `test_raft_replication`, `test_raft_prevote` | write-ups 014, 015, 019 |
+| Order books driven by the replicated log | `./build/test_raft_apply` | write-up 017 |
+| Raft on 3 real processes over UDP, kill -9 of the leader, restart from disk | `scripts/raft_failover.sh ./build/raft_main` | write-up 018 |
+
+Numbers in the demo, live and web views are one-thread service times on WSL2 with synthetic random orders. Quote only the numbers in the Measurements section and in the write-ups.
+
+What the Raft write-ups established (all on a simulator with loss, duplication, reordering, crashes and partitions unless stated):
+- Safety checks (election safety, State Machine Safety, Leader Completeness, Log Matching, commit durability) pass, and 10 deliberate bugs are each caught (014, 015).
+- Pre-vote: without it a cut-off node deposed the healthy leader in 80 of 80 runs, with it in 0 of 80 (019). It is off by default in the simulator tests and on in the real-process node.
+- 300 simulated clusters ended with identical order books on all nodes (017).
+- On 3 real processes the books were identical after kill -9 of the leader and a restart, in 3 of 3 runs; election took 117 to 226 ms with pre-vote and 141 to 189 ms without, and the ranges overlap (018, 019).
+
 ## Not established yet
 
 1. Bimodal SPSC throughput: unexplained.
@@ -82,6 +102,12 @@ Caveats that matter:
 4. Durability and tuning claims: need bare-metal Linux.
 5. Allocation-free hot path: no proof test yet.
 6. Sustained (not burst) throughput: not measured.
+
+- Raft durability is tested only against a process crash. WSL2 `fdatasync` does not flush for real, so power-loss safety needs bare-metal Linux.
+- Raft on real processes was run on one machine over loopback UDP only, in one scenario, 3 runs. Network loss, delay and partitions were tested only in the simulator.
+- Chaos runs commit different numbers of commands with pre-vote on and off. That is one deterministic workload, not a comparison I can interpret.
+- In the live view the p50 fell from 83 ns to 30 ns inside one run with a small book. Unexplained.
+- Other open questions are listed in `docs/doubts.md`.
 
 ## Build and test
 
@@ -99,16 +125,19 @@ g++ -std=c++20 -O1 -g -fsanitize=address,undefined -Iinclude -o /tmp/t tests/tes
 
 ## Roadmap
 
-1. Raft log replication and commit, then pre-vote and CheckQuorum
-2. Order types (IOC, FOK, stop), modify
-3. Snapshots and crash recovery
+Done: Raft election, replication and commit, pre-vote and CheckQuorum (019); IOC, FOK, market orders and modify (016); replicated order books (017); Raft on real processes (018); terminal demo, live view and a first browser view.
+
+Next, in this order:
+1. Stop orders and self-trade prevention
+2. Connect the order book to Raft in the real-process node with a client path (retry, redirect to the leader) and measure replicated-order latency
+3. Snapshots, log compaction and crash recovery
 4. UDP market-data publisher and gateway hardening
 5. Risk checks and order management
 6. Profiling with `perf`, flamegraphs and cachegrind, with a measured speedup
 7. Market-maker bot and backtester
-8. Latency dashboard
-9. Bare-metal Linux re-measurement
+8. Latency dashboard beyond the first browser view
+9. Bare-metal Linux re-measurement (fsync, the unexplained tails)
 
 ## Write-ups
 
-Every experiment, bug and correction is in `docs/bugs/` (001 to 014), including the ones where an earlier claim turned out to be wrong.
+Every experiment, bug and correction is in `docs/bugs/` (001 to 019), including the ones where an earlier claim turned out to be wrong.
