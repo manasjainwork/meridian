@@ -27,9 +27,10 @@ async def record(args):
             try:
                 async with websockets.connect(args.url, max_size=None, ping_interval=20) as ws:
                     # The server disconnects a client that does not subscribe within 5 seconds, so subscribe at once.
-                    if args.subscribe != "none":
-                        msg = args.subscribe or json.dumps({"type": "subscribe", "product_ids": args.products, "channels": args.channels})
-                        await ws.send(msg)
+                    if args.subscribe != ["none"]:
+                        msgs = args.subscribe or [json.dumps({"type": "subscribe", "product_ids": args.products, "channels": args.channels})]
+                        for msg in msgs:
+                            await ws.send(msg)
                     attempt = 0
                     while True:
                         left = deadline - time.monotonic()
@@ -74,7 +75,7 @@ def main():
     p.add_argument("--url", default=DEFAULT_URL)
     p.add_argument("--products", nargs="+", default=["BTC-USD"])
     p.add_argument("--channels", nargs="+", default=["level2", "ticker", "heartbeat"])
-    p.add_argument("--subscribe", default=None, help="raw JSON subscribe message to send instead of the Coinbase one; 'none' sends nothing")
+    p.add_argument("--subscribe", action="append", default=None, help="raw JSON subscribe message to send instead of the Coinbase one; repeat the option to send several (Kraken needs one per channel); 'none' sends nothing")
     p.add_argument("--seconds", type=float, default=30)
     p.add_argument("--out", default="data/feed.jsonl")
     p.add_argument("--retries", type=int, default=3)
