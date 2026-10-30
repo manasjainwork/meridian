@@ -116,7 +116,7 @@ const char* status_name(Status s) {
 const char* reject_name(Reject r) {
     switch (r) {
         case Reject::None: return "none"; case Reject::BadParam: return "bad_param"; case Reject::QtyLimit: return "qty_limit";
-        case Reject::PositionLimit: return "position_limit"; case Reject::PoolFull: return "pool_full"; case Reject::UnknownOrder: return "unknown_order";
+        case Reject::PositionLimit: return "position_limit"; case Reject::SelfTrade: return "self_trade"; case Reject::PoolFull: return "pool_full"; case Reject::UnknownOrder: return "unknown_order";
         case Reject::NotOwner: return "not_owner"; case Reject::NotOpen: return "not_open"; case Reject::KeyReuse: return "key_reuse";
     }
     return "?";

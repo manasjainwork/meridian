@@ -17,6 +17,19 @@ static Request lim(uint32_t acc, uint64_t cl, Side s, uint32_t price, uint32_t q
 }
 static Request mkt(uint32_t acc, uint64_t cl, Side s, uint32_t qty) { return {acc, cl, s, Type::Market, TimeInForce::IOC, 0, qty}; }
 
+static void self_trade() {
+    Config c; c.max_price = 1000; c.max_order_qty = 500; c.max_position = 1000;
+    Oms o(c);
+    const Result s1 = o.submit(lim(1, 1, Side::Sell, 500, 10));
+    CHECK(o.submit(lim(1, 2, Side::Buy, 500, 5)).reject == Reject::SelfTrade);
+    const Result b3 = o.submit(lim(1, 3, Side::Buy, 499, 5));
+    CHECK(b3.reject == Reject::None);
+    CHECK(o.submit(mkt(1, 4, Side::Buy, 5)).reject == Reject::SelfTrade);
+    CHECK(o.submit(lim(2, 1, Side::Buy, 500, 5)).filled == 5);
+    CHECK(o.modify(1, b3.order_id, 501, 5).reject == Reject::SelfTrade);
+    CHECK(s1.reject == Reject::None && o.check());
+}
+
 static void directed() {
     Config c; c.max_price = 1000; c.max_order_qty = 500; c.max_position = 1000;
     Oms o(c);
@@ -80,7 +93,8 @@ static bool fuzz(uint64_t seed, uint32_t bugs, int ops) {
             Request r = lim(1 + rng() % 4, ++cl, (rng() & 1) ? Side::Buy : Side::Sell, 90 + rng() % 21, 1 + rng() % 60,
                             (rng() % 10 == 0) ? TimeInForce::IOC : (rng() % 12 == 0 ? TimeInForce::FOK : TimeInForce::GTC));
             if (rng() % 9 == 0) r = mkt(r.account, r.cl_ord_id, r.side, r.qty);
-            o.submit(r);
+            const Result sr = o.submit(r);
+            for (const auto& f : sr.fills) if (o.order(f.maker_id)->account == o.order(f.taker_id)->account) return true;   // traded with itself
             sent.push_back(r);
         } else if (roll < 68 && !sent.empty()) {                       // the client retries: identical request
             const Request& r = sent[rng() % sent.size()];
@@ -112,6 +126,7 @@ static bool fuzz(uint64_t seed, uint32_t bugs, int ops) {
             const uint64_t d = o.digest();
             const Result x = o.modify(acc, id, 90 + rng() % 21, 1 + rng() % 60);
             if (x.reject != Reject::None && o.digest() != d) return true;
+            for (const auto& f : x.fills) if (o.order(f.maker_id)->account == o.order(f.taker_id)->account) return true;
         }
         if (!o.check(&why)) return true;
     }
@@ -134,6 +149,7 @@ static void determinism() {
 
 int main() {
     directed();
+    self_trade();
     determinism();
     int bad = 0;
     for (uint64_t s = 1; s <= 120; ++s) if (fuzz(s, 0, 1200)) ++bad;
@@ -144,6 +160,7 @@ int main() {
         {kCancelAnyAccount, "any account can cancel any order"},
         {kSkipOpenOnCancel, "open quantity not reduced on cancel"},
         {kTakerNotCredited, "taker position and cash not updated"},
+        {kNoSelfTrade, "an account can trade with its own order"},
     };
     for (const auto& m : mutants) {
         int caught = 0;

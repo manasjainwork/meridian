@@ -26,7 +26,7 @@ using book::TimeInForce;
 
 enum class Type : uint8_t { Limit, Market };
 enum class Status : uint8_t { Rejected, Open, Filled, Cancelled };
-enum class Reject : uint8_t { None, BadParam, QtyLimit, PositionLimit, PoolFull, UnknownOrder, NotOwner, NotOpen, KeyReuse };
+enum class Reject : uint8_t { None, BadParam, QtyLimit, PositionLimit, PoolFull, UnknownOrder, NotOwner, NotOpen, KeyReuse, SelfTrade };
 
 struct Request {
     uint32_t account;
@@ -52,7 +52,7 @@ struct Result {
 };
 
 // Bit flags that deliberately break the logic, so the tests can prove they would notice (see test_oms).
-enum Bug : uint32_t { kNoIdempotency = 1, kCancelAnyAccount = 2, kSkipOpenOnCancel = 4, kTakerNotCredited = 8 };
+enum Bug : uint32_t { kNoIdempotency = 1, kCancelAnyAccount = 2, kSkipOpenOnCancel = 4, kTakerNotCredited = 8, kNoSelfTrade = 16 };
 
 struct Config {
     uint32_t max_orders = 1u << 16;
@@ -132,6 +132,7 @@ public:
         if (o.status != Status::Open) return fail(res, Reject::NotOpen);
         if (new_qty == 0 || new_price == 0 || new_price >= cfg_.max_price) return fail(res, Reject::BadParam);
         if (new_qty > cfg_.max_order_qty) return fail(res, Reject::QtyLimit);
+        if (would_self_trade(o.account, o.side, Type::Limit, new_price, order_id)) return fail(res, Reject::SelfTrade);
         Account& a = accounts_[o.account];
         const int64_t extra = new_qty > o.remaining ? new_qty - o.remaining : 0;
         if (exposure(a, o.side) + extra > cfg_.max_position) return fail(res, Reject::PositionLimit);
@@ -221,6 +222,20 @@ private:
 
     static Result& fail(Result& r, Reject why) { r.reject = why; r.status = Status::Rejected; return r; }
     static void add_open(Account& a, Side s, int64_t d) { (s == Side::Buy ? a.open_buy : a.open_sell) += d; }
+    // Self-trade prevention, "reject the incoming order": refused if it could match one of the same account's own
+    // resting orders. A market order is refused if the account has any resting order on the other side.
+    bool would_self_trade(uint32_t account, Side side, Type type, uint32_t price, uint64_t ignore_id) const {
+        if (cfg_.bugs & kNoSelfTrade) return false;
+        const auto ai = accounts_.find(account);
+        if (ai == accounts_.end() || (side == Side::Buy ? ai->second.open_sell : ai->second.open_buy) == 0) return false;
+        for (const auto& kv : orders_) {
+            const OrderRec& o = kv.second;
+            if (o.account != account || o.status != Status::Open || o.remaining == 0 || o.side == side || o.id == ignore_id) continue;
+            if (type == Type::Market) return true;
+            if (side == Side::Buy ? o.price <= price : o.price >= price) return true;
+        }
+        return false;
+    }
     static int64_t exposure(const Account& a, Side s) { return s == Side::Buy ? a.position + a.open_buy : -a.position + a.open_sell; }
 
     // The maker's record shrinks, and both sides' position and cash move. The taker's own record is set by the caller
@@ -248,6 +263,7 @@ private:
         Result res;
         if (r.qty == 0 || (r.type == Type::Limit && (r.price == 0 || r.price >= cfg_.max_price))) return fail(res, Reject::BadParam);
         if (r.qty > cfg_.max_order_qty) return fail(res, Reject::QtyLimit);
+        if (would_self_trade(r.account, r.side, r.type, r.price, 0)) return fail(res, Reject::SelfTrade);
         Account& a = accounts_[r.account];
         if (exposure(a, r.side) + r.qty > cfg_.max_position) return fail(res, Reject::PositionLimit);
         const uint64_t id = next_id_++;

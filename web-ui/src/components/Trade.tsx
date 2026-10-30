@@ -57,7 +57,7 @@ export default function Trade() {
       qty_limit: `above the maximum order size of ${fmtUnits(cfg?.max_order_qty_lots ?? 0, qd)} BTC`,
       position_limit: `would exceed the position limit of ${fmtUnits(cfg?.max_position_lots ?? 0, qd)} BTC (open orders count)`,
       key_reuse: "this client order id was already used for a different request", not_owner: "that order belongs to another account",
-      not_open: "that order is not open any more", unknown_order: "no such order", pool_full: "the order book is full" };
+      not_open: "that order is not open any more", self_trade: "would trade against your own resting order (self-trade prevention)", unknown_order: "no such order", pool_full: "the order book is full" };
     const what = r.ok ? `${r.status}: filled ${q(r.filled)}, rested ${q(r.rested)}, cancelled ${q(r.cancelled)} (${r.fills.length} fills), order ${r.order_id}` : `REJECTED, ${why[r.reject] ?? r.reject ?? r.error}`;
     push(`${path} -> ${status}: ${what}${r.duplicate ? "  [duplicate: answered from memory, nothing traded again]" : ""}`, r.duplicate ? "dup" : r.ok ? "ok" : "bad");
   };
