@@ -19,9 +19,10 @@ export default function Trade() {
   const [acct, setAcct] = useState<AccountData | null>(null);
   const [log, setLog] = useState<LogLine[]>([]);
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [type, setType] = useState<"limit" | "market">("limit");
+  const [type, setType] = useState<"limit" | "market" | "stop" | "stop_limit">("limit");
   const [tif, setTif] = useState<"gtc" | "ioc" | "fok">("gtc");
   const [price, setPrice] = useState("");
+  const [stopPx, setStopPx] = useState("");
   const [qty, setQty] = useState("0.1");
   const [editing, setEditing] = useState<number | null>(null);
   const [mPrice, setMPrice] = useState(""); const [mQty, setMQty] = useState("");
@@ -58,8 +59,8 @@ export default function Trade() {
       position_limit: `would exceed the position limit of ${fmtUnits(cfg?.max_position_lots ?? 0, qd)} BTC (open orders count)`,
       key_reuse: "this client order id was already used for a different request", not_owner: "that order belongs to another account",
       not_open: "that order is not open any more", self_trade: "would trade against your own resting order (self-trade prevention)", unknown_order: "no such order", pool_full: "the order book is full" };
-    const what = r.ok ? `${r.status}: filled ${q(r.filled)}, rested ${q(r.rested)}, cancelled ${q(r.cancelled)} (${r.fills.length} fills), order ${r.order_id}` : `REJECTED, ${why[r.reject] ?? r.reject ?? r.error}`;
-    push(`${path} -> ${status}: ${what}${r.duplicate ? "  [duplicate: answered from memory, nothing traded again]" : ""}`, r.duplicate ? "dup" : r.ok ? "ok" : "bad");
+    const what = r.ok && r.status === "pending" ? `stop order ${r.order_id} accepted, waiting for its trigger price` : r.ok && r.status === "triggered" ? `stop order ${r.order_id} fired at once: the last trade price was already past its stop` : r.ok ? `${r.status}: filled ${q(r.filled)}, rested ${q(r.rested)}, cancelled ${q(r.cancelled)} (${r.fills.length} fills), order ${r.order_id}` : `REJECTED, ${why[r.reject] ?? r.reject ?? r.error}`;
+    push(`${path} -> ${status}: ${what}${r.duplicate ? "  [duplicate: answered from memory, nothing traded again]" : ""}${r.triggered_fills ? `  [${r.triggered_fills} fills from stop orders fired by this trade]` : ""}`, r.duplicate ? "dup" : r.ok ? "ok" : "bad");
   };
 
   const send = async (path: string, body: Record<string, unknown>) => {
@@ -74,7 +75,12 @@ export default function Trade() {
     const qn = parseUnits(qty, qd);
     if (qn === null || qn === 0) return push(`quantity must be a positive number with at most ${qd} decimals`, "bad");
     const body: Record<string, unknown> = { account: accNum, cl_ord_id: ++clId.current, side, type, qty: qn };
-    if (type === "limit") {
+    if (type === "stop" || type === "stop_limit") {
+      const sn = parseUnits(stopPx, pd);
+      if (sn === null || sn === 0) return push(`stop price must be a positive number with at most ${pd} decimals`, "bad");
+      body.stop_price = sn;
+    }
+    if (type === "limit" || type === "stop_limit") {
       const pn = parseUnits(price, pd);
       if (pn === null || pn === 0) return push(`price must be a positive number with at most ${pd} decimals`, "bad");
       body.price = pn; body.tif = tif;
@@ -130,9 +136,12 @@ export default function Trade() {
               <button className={side === "sell" ? "on sell" : ""} onClick={() => setSide("sell")}>Sell</button>
               <button className={type === "limit" ? "on" : ""} onClick={() => setType("limit")}>Limit</button>
               <button className={type === "market" ? "on" : ""} onClick={() => setType("market")}>Market</button>
+              <button className={type === "stop" ? "on" : ""} onClick={() => setType("stop")}>Stop</button>
+              <button className={type === "stop_limit" ? "on" : ""} onClick={() => setType("stop_limit")}>Stop-limit</button>
             </div>
             <div className="form">
-              {type === "limit" && <label>Price<input value={price} onChange={(e) => setPrice(e.target.value)} placeholder={`e.g. ${fmtUnits(book?.asks[0]?.[0] ?? 800000, pd, false)}`} /></label>}
+              {(type === "stop" || type === "stop_limit") && <label>Stop price (fires when the last trade reaches it)<input value={stopPx} onChange={(e) => setStopPx(e.target.value)} placeholder="trigger price" /></label>}
+              {(type === "limit" || type === "stop_limit") && <label>Price<input value={price} onChange={(e) => setPrice(e.target.value)} placeholder={`e.g. ${fmtUnits(book?.asks[0]?.[0] ?? 800000, pd, false)}`} /></label>}
               <label>Quantity (BTC)<input value={qty} onChange={(e) => setQty(e.target.value)} /></label>
               {type === "limit" && <label>Time in force<select value={tif} onChange={(e) => setTif(e.target.value as "gtc" | "ioc" | "fok")}>
                 <option value="gtc">GTC (rest the remainder)</option><option value="ioc">IOC (cancel the remainder)</option><option value="fok">FOK (all or nothing)</option></select></label>}
@@ -161,6 +170,15 @@ export default function Trade() {
                   <button onClick={() => modify(o.order_id)}>OK</button><button onClick={() => setEditing(null)}>x</button></> : <>
                   <button onClick={() => { setEditing(o.order_id); setMPrice(fmtUnits(o.price, pd, false)); setMQty(fmtUnits(o.remaining, qd, false)); }}>Modify</button>
                   <button onClick={() => cancel(o.order_id)}>Cancel</button></>}
+              </div>))}
+          </div>
+          <div className="panel"><h3>Stop orders waiting</h3>
+            {(acct?.stops ?? []).length === 0 && <p className="muted small">None.</p>}
+            {(acct?.stops ?? []).map((s) => (
+              <div className="oo" key={s.order_id}>
+                <span className={s.side}>{s.side}</span>
+                <span>{fmtUnits(s.qty, qd)} when price {s.side === "buy" ? ">=" : "<="} {fmtUnits(s.stop_price, pd)}{s.price ? ` then limit ${fmtUnits(s.price, pd)}` : " then market"}</span>
+                <button onClick={() => cancel(s.order_id)}>Cancel</button>
               </div>))}
           </div>
           <div className="panel"><h3>Gateway responses</h3>

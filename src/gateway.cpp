@@ -111,7 +111,7 @@ bool get_u32(const Flat& f, const char* key, uint32_t& out) {
 }
 
 const char* status_name(Status s) {
-    switch (s) { case Status::Open: return "open"; case Status::Filled: return "filled"; case Status::Cancelled: return "cancelled"; default: return "rejected"; }
+    switch (s) { case Status::Open: return "open"; case Status::Filled: return "filled"; case Status::Cancelled: return "cancelled"; case Status::Pending: return "pending"; case Status::Triggered: return "triggered"; default: return "rejected"; }
 }
 const char* reject_name(Reject r) {
     switch (r) {
@@ -128,7 +128,9 @@ Reply error(int code, const std::string& msg) { return {code, "{\"ok\":false,\"e
 
 // Called with g_mu held.
 void record_trades(const Result& r) {
-    for (const book::Fill& f : r.fills) {
+    std::vector<book::Fill> all = r.fills;
+    all.insert(all.end(), r.triggered.begin(), r.triggered.end());
+    for (const book::Fill& f : all) {
         const OrderRec* tk = g_oms->order(f.taker_id);
         g_trades.push_back({++g_trade_seq, f.price, f.qty, tk && tk->side == Side::Buy ? "buy" : "sell"});
         if (g_trades.size() > 200) g_trades.pop_front();
@@ -139,7 +141,7 @@ std::string result_json(const Result& r) {
     std::ostringstream o;
     o << "{\"ok\":" << (r.reject == Reject::None ? "true" : "false") << ",\"reject\":\"" << reject_name(r.reject) << "\",\"order_id\":" << r.order_id
       << ",\"status\":\"" << status_name(r.status) << "\",\"filled\":" << r.filled << ",\"rested\":" << r.rested << ",\"cancelled\":" << r.cancelled
-      << ",\"duplicate\":" << (r.duplicate ? "true" : "false") << ",\"fills\":[";
+      << ",\"duplicate\":" << (r.duplicate ? "true" : "false") << ",\"triggered_fills\":" << r.triggered.size() << ",\"fills\":[";
     for (size_t i = 0; i < r.fills.size(); ++i)
         o << (i ? "," : "") << "{\"maker\":" << r.fills[i].maker_id << ",\"taker\":" << r.fills[i].taker_id << ",\"price\":" << r.fills[i].price << ",\"qty\":" << r.fills[i].qty << "}";
     o << "]}";
@@ -157,10 +159,11 @@ Reply post_orders(const std::string& body) {
     r.cl_ord_id = cl;
     const std::string side = f.kv.count("side") ? f.kv["side"] : "", type = f.kv.count("type") ? f.kv["type"] : "limit", tif = f.kv.count("tif") ? f.kv["tif"] : "gtc";
     if (side == "buy") r.side = Side::Buy; else if (side == "sell") r.side = Side::Sell; else return error(400, "side must be buy or sell");
-    if (type == "limit") r.type = Type::Limit; else if (type == "market") r.type = Type::Market; else return error(400, "type must be limit or market");
+    if (type == "limit") r.type = Type::Limit; else if (type == "market") r.type = Type::Market; else if (type == "stop") r.type = Type::Stop; else if (type == "stop_limit") r.type = Type::StopLimit; else return error(400, "type must be limit, market, stop or stop_limit");
     if (tif == "gtc") r.tif = book::TimeInForce::GTC; else if (tif == "ioc") r.tif = book::TimeInForce::IOC; else if (tif == "fok") r.tif = book::TimeInForce::FOK; else return error(400, "tif must be gtc, ioc or fok");
     r.price = 0;
-    if (r.type == Type::Limit && !get_u32(f, "price", r.price)) return error(400, "a limit order needs an integer price in ticks");
+    if ((r.type == Type::Limit || r.type == Type::StopLimit) && !get_u32(f, "price", r.price)) return error(400, "a limit order needs an integer price in ticks");
+    if ((r.type == Type::Stop || r.type == Type::StopLimit) && !get_u32(f, "stop_price", r.stop_price)) return error(400, "a stop order needs an integer stop_price in ticks");
     std::lock_guard<std::mutex> lk(g_mu);
     const Result res = g_oms->submit(r);
     if (!res.duplicate) record_trades(res);
@@ -257,9 +260,16 @@ Reply get_account(const std::string& query) {
           << ",\"qty\":" << r.qty << ",\"filled\":" << r.filled << ",\"remaining\":" << r.remaining << "}";
         first = false;
     }
+    o << "],\"stops\":[";
+    first = true;
+    for (const OrderRec& r : g_oms->pending_stops(acc)) {
+        o << (first ? "" : ",") << "{\"order_id\":" << r.id << ",\"side\":\"" << (r.side == Side::Buy ? "buy" : "sell") << "\",\"stop_price\":" << r.stop << ",\"price\":" << r.price << ",\"qty\":" << r.qty << "}";
+        first = false;
+    }
     o << "]}";
     return {200, o.str()};
 }
+
 Reply route(const std::string& method, const std::string& target, const std::string& body) {
     const size_t qm = target.find('?');
     const std::string path = target.substr(0, qm), query = qm == std::string::npos ? "" : target.substr(qm + 1);

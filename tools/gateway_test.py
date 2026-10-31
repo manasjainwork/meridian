@@ -109,6 +109,26 @@ try:
     st, x = order(5, 99, "buy", 700000, 1000000)
     check(st == 422 and x["reject"] == "position_limit", "position limit counts open orders")
 
+    # stop orders: a buy stop waits, a trade at its price fires it, a cancelled stop never fires
+    _, b8 = order(8, 1, "buy", 790000, 3000)
+    order(9, 1, "sell", 790000, 1, tif="ioc")                                    # trade at 790000: the last price is now known
+    st, s = order(7, 1, "buy", 0, 500, type="stop", stop_price=791000)
+    check(st == 200 and s["status"] == "pending", "stop order is accepted and waits")
+    st, a7 = call("GET", "/account?account=7")
+    check(len(a7["stops"]) == 1 and a7["stops"][0]["stop_price"] == 791000 and a7["position"] == 0, "waiting stop is listed, nothing traded")
+    st, again = order(7, 1, "buy", 0, 500, type="stop", stop_price=791000)
+    check(again["duplicate"] and again["order_id"] == s["order_id"], "retry of a stop order is answered from memory")
+    _, a9 = order(9, 2, "sell", 791000, 1000)
+    st, t = order(10, 1, "buy", 791000, 100, tif="ioc")
+    check(st == 200 and t["filled"] == 100 and t["triggered_fills"] == 1, "a trade at the stop price fires the stop")
+    _, a7 = call("GET", "/account?account=7")
+    check(a7["position"] == 500 and a7["stops"] == [], "fired stop traded exactly its quantity and left the waiting list")
+    st, s2 = order(7, 2, "buy", 0, 100, type="stop", stop_price=795000)
+    st, cx = call("POST", "/cancel", {"account": 7, "order_id": s2["order_id"]})
+    check(st == 200 and cx["status"] == "cancelled", "a waiting stop can be cancelled")
+    check(call("POST", "/orders", {"account": 7, "cl_ord_id": 3, "side": "buy", "type": "stop", "qty": 5})[0] == 400, "stop order without stop_price is refused")
+    call("POST", "/cancel", {"account": 8, "order_id": b8["order_id"]}); call("POST", "/cancel", {"account": 9, "order_id": a9["order_id"]})
+
     # malformed input never crashes the server
     check(call("POST", "/orders", raw=b"{not json")[0] == 400, "bad JSON")
     check(call("POST", "/orders", {"account": 1})[0] == 400, "missing fields")

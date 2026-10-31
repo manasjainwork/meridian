@@ -13,6 +13,7 @@
 // No clock, no randomness, ids come from a counter. That is what lets it sit behind a Raft log later.
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -24,8 +25,9 @@ namespace meridian::oms {
 using book::Side;
 using book::TimeInForce;
 
-enum class Type : uint8_t { Limit, Market };
-enum class Status : uint8_t { Rejected, Open, Filled, Cancelled };
+enum class Type : uint8_t { Limit, Market, Stop, StopLimit };
+// Pending: a stop order waiting for its trigger price. Triggered: it fired and became a normal order (see OrderRec::child).
+enum class Status : uint8_t { Rejected, Open, Filled, Cancelled, Pending, Triggered };
 enum class Reject : uint8_t { None, BadParam, QtyLimit, PositionLimit, PoolFull, UnknownOrder, NotOwner, NotOpen, KeyReuse, SelfTrade };
 
 struct Request {
@@ -36,9 +38,10 @@ struct Request {
     TimeInForce tif;     // ignored for market orders
     uint32_t price;      // ticks, ignored for market orders
     uint32_t qty;        // lots
+    uint32_t stop_price = 0;   // ticks, only for Stop and StopLimit
     bool operator==(const Request& o) const noexcept {
         return account == o.account && cl_ord_id == o.cl_ord_id && side == o.side && type == o.type &&
-               (type == Type::Market || (tif == o.tif && price == o.price)) && qty == o.qty;
+               (type == Type::Market || type == Type::Stop || (tif == o.tif && price == o.price)) && qty == o.qty && stop_price == o.stop_price;
     }
 };
 
@@ -49,10 +52,11 @@ struct Result {
     uint32_t filled = 0, rested = 0, cancelled = 0;
     bool duplicate = false;
     std::vector<book::Fill> fills;
+    std::vector<book::Fill> triggered;   // fills of stop orders that fired because of this operation, in order
 };
 
 // Bit flags that deliberately break the logic, so the tests can prove they would notice (see test_oms).
-enum Bug : uint32_t { kNoIdempotency = 1, kCancelAnyAccount = 2, kSkipOpenOnCancel = 4, kTakerNotCredited = 8, kNoSelfTrade = 16 };
+enum Bug : uint32_t { kNoIdempotency = 1, kCancelAnyAccount = 2, kSkipOpenOnCancel = 4, kTakerNotCredited = 8, kNoSelfTrade = 16, kStopNeverTriggers = 32, kStopWrongWay = 64 };
 
 struct Config {
     uint32_t max_orders = 1u << 16;
@@ -74,6 +78,8 @@ struct OrderRec {
     uint32_t filled;
     uint32_t remaining;  // resting in the book right now
     Status status;
+    uint32_t stop = 0;   // trigger price in ticks (stop orders)
+    uint64_t child = 0;  // the order a stop became when it fired, 0 if it did not become one
 };
 
 struct Account {
@@ -100,6 +106,8 @@ public:
             }
         }
         Result res = do_submit(r);
+        run_triggers(res.triggered);
+        if (res.status == Status::Pending) res.status = orders_.at(res.order_id).status;   // a stop already past its price fired at once
         seen_[key] = Seen{r, res};
         return res;
     }
@@ -110,6 +118,12 @@ public:
         if (it == orders_.end()) return fail(res, Reject::UnknownOrder);
         OrderRec& o = it->second;
         if (o.account != account && !(cfg_.bugs & kCancelAnyAccount)) return fail(res, Reject::NotOwner);
+        if (o.status == Status::Pending) {                       // a stop order that has not fired: nothing is in the book
+            pending_.erase(order_id);
+            res.order_id = order_id; res.status = Status::Cancelled; res.cancelled = o.remaining;
+            o.remaining = 0; o.status = Status::Cancelled;
+            return res;
+        }
         if (o.status != Status::Open) return fail(res, Reject::NotOpen);
         book_.cancel(order_id);
         if (!(cfg_.bugs & kSkipOpenOnCancel)) add_open(accounts_[o.account], o.side, -static_cast<int64_t>(o.remaining));
@@ -152,6 +166,7 @@ public:
         res.filled = er.filled;
         res.rested = er.rested;
         res.fills = fills_;
+        run_triggers(res.triggered);
         return res;
     }
 
@@ -161,6 +176,12 @@ public:
     const book::OrderBook& book() const noexcept { return book_; }
     const Config& config() const noexcept { return cfg_; }
     uint64_t next_order_id() const noexcept { return next_id_; }
+    uint32_t last_price() const noexcept { return last_px_; }   // price of the latest fill, 0 before the first
+    std::vector<OrderRec> pending_stops(uint32_t account) const {
+        std::vector<OrderRec> v;
+        for (const uint64_t id : pending_) { const OrderRec& o = orders_.at(id); if (o.account == account) v.push_back(o); }
+        return v;
+    }
 
     std::vector<OrderRec> open_orders(uint32_t account) const {
         std::vector<OrderRec> v;
@@ -187,7 +208,8 @@ public:
                 if (o.remaining == 0) return fail_("open order with nothing remaining");
                 (o.side == Side::Buy ? open[o.account].first : open[o.account].second) += o.remaining;
                 (o.side == Side::Buy ? rest_buy : rest_sell) += o.remaining;
-            } else if (o.remaining != 0) return fail_("closed order with quantity remaining");
+            } else if (o.status != Status::Pending && o.remaining != 0) return fail_("closed order with quantity remaining");
+            if (o.status == Status::Pending && stop_hit(o.side, o.stop, last_px_, false)) return fail_("a stop order that should have fired is still pending");
             if (o.filled + o.remaining > o.qty) return fail_("order over-filled");
         }
         for (const auto& kv : accounts_) {
@@ -211,7 +233,7 @@ public:
             const auto it = orders_.find(id);
             if (it == orders_.end()) continue;
             const OrderRec& o = it->second;
-            mix(o.id); mix(o.account); mix(o.filled); mix(o.remaining); mix(static_cast<uint64_t>(o.status));
+            mix(o.id); mix(o.account); mix(o.filled); mix(o.remaining); mix(static_cast<uint64_t>(o.status)); mix(o.stop);
         }
         mix(next_id_);
         return h;
@@ -242,6 +264,7 @@ private:
     // from the execution report.
     void apply_fills(const std::vector<book::Fill>& fills) {
         for (const book::Fill& f : fills) {
+            last_px_ = f.price;
             OrderRec& mk = orders_.at(f.maker_id);
             const OrderRec& tk = orders_.at(f.taker_id);
             mk.filled += f.qty;
@@ -259,8 +282,54 @@ private:
         }
     }
 
+    // Stop orders sit outside the book. A buy stop fires when the last trade price is >= its stop price, a sell stop when it is
+    // <= . Stop: becomes a market order. StopLimit: becomes a limit order at its price. At the trigger the order goes through
+    // the same checks as any new order (position limit, self-trade); if refused it is cancelled. Entry checks size and limit only.
+    static bool stop_hit(Side s, uint32_t stop, uint32_t last, bool wrong_way) {
+        if (last == 0) return false;
+        return ((s == Side::Buy) != wrong_way) ? last >= stop : last <= stop;
+    }
+
+    Result place_stop(const Request& r) {
+        Result res;
+        if (r.qty == 0 || r.stop_price == 0 || r.stop_price >= cfg_.max_price || (r.type == Type::StopLimit && (r.price == 0 || r.price >= cfg_.max_price))) return fail(res, Reject::BadParam);
+        if (r.qty > cfg_.max_order_qty) return fail(res, Reject::QtyLimit);
+        if (exposure(accounts_[r.account], r.side) + r.qty > cfg_.max_position) return fail(res, Reject::PositionLimit);
+        const uint64_t id = next_id_++;
+        OrderRec rec{id, r.account, r.cl_ord_id, r.side, r.type, TimeInForce::GTC, r.type == Type::StopLimit ? r.price : 0u, r.qty, 0, r.qty, Status::Pending};
+        rec.stop = r.stop_price;
+        orders_[id] = rec;
+        pending_.insert(id);
+        res.order_id = id;
+        res.status = Status::Pending;
+        return res;
+    }
+
+    // Fires every pending stop that the last price has reached, lowest order id first; a fired stop's trades can fire more.
+    void run_triggers(std::vector<book::Fill>& out) {
+        if (cfg_.bugs & kStopNeverTriggers) return;
+        for (;;) {
+            uint64_t pick = 0;
+            for (const uint64_t id : pending_) {
+                const OrderRec& o = orders_.at(id);
+                if (stop_hit(o.side, o.stop, last_px_, (cfg_.bugs & kStopWrongWay) != 0)) { pick = id; break; }
+            }
+            if (pick == 0) return;
+            pending_.erase(pick);
+            const OrderRec st = orders_.at(pick);
+            Request child{st.account, 0, st.side, st.type == Type::Stop ? Type::Market : Type::Limit, TimeInForce::GTC, st.price, st.qty};
+            const Result cr = do_submit(child);
+            OrderRec& s2 = orders_.at(pick);
+            s2.remaining = 0;
+            s2.status = cr.reject == Reject::None ? Status::Triggered : Status::Cancelled;
+            s2.child = cr.reject == Reject::None ? cr.order_id : 0;
+            out.insert(out.end(), cr.fills.begin(), cr.fills.end());
+        }
+    }
+
     Result do_submit(const Request& r) {
         Result res;
+        if (r.type == Type::Stop || r.type == Type::StopLimit) return place_stop(r);
         if (r.qty == 0 || (r.type == Type::Limit && (r.price == 0 || r.price >= cfg_.max_price))) return fail(res, Reject::BadParam);
         if (r.qty > cfg_.max_order_qty) return fail(res, Reject::QtyLimit);
         if (would_self_trade(r.account, r.side, r.type, r.price, 0)) return fail(res, Reject::SelfTrade);
@@ -298,6 +367,8 @@ private:
     std::map<uint32_t, Account> accounts_;
     std::map<std::pair<uint32_t, uint64_t>, Seen> seen_;
     uint64_t next_id_ = 1;
+    uint32_t last_px_ = 0;
+    std::set<uint64_t> pending_;   // ids of stop orders waiting, ascending
 };
 
 }  // namespace meridian::oms

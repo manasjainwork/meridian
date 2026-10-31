@@ -30,6 +30,25 @@ static void self_trade() {
     CHECK(s1.reject == Reject::None && o.check());
 }
 
+static void stops() {
+    Config c; c.max_price = 1000; c.max_order_qty = 500; c.max_position = 1000;
+    Oms o(c);
+    o.submit(lim(1, 1, Side::Sell, 500, 10));
+    Request sb = lim(2, 1, Side::Buy, 0, 5); sb.type = Type::Stop; sb.stop_price = 500;
+    const Result p = o.submit(sb);
+    CHECK(p.reject == Reject::None && p.status == Status::Pending && o.account(2)->position == 0 && o.check());
+    CHECK(o.submit(sb).duplicate && o.submit(sb).order_id == p.order_id);                    // a retry does not create a second stop
+    const Result t = o.submit(lim(3, 1, Side::Buy, 500, 1));                                  // a trade at 500 fires the stop
+    CHECK(t.filled == 1 && t.triggered.size() == 1 && t.triggered[0].qty == 5 && t.triggered[0].price == 500);
+    CHECK(o.order(p.order_id)->status == Status::Triggered && o.account(2)->position == 5 && o.check());
+    Request ss = lim(2, 2, Side::Sell, 0, 3); ss.type = Type::Stop; ss.stop_price = 400;      // below the last price: waits
+    const Result q = o.submit(ss);
+    CHECK(q.status == Status::Pending);
+    CHECK(o.cancel(2, q.order_id).status == Status::Cancelled && o.cancel(2, q.order_id).reject == Reject::NotOpen && o.check());
+    Request sb2 = lim(2, 3, Side::Buy, 0, 2); sb2.type = Type::Stop; sb2.stop_price = 450;    // already past its price: fires at once
+    CHECK(o.submit(sb2).status == Status::Triggered && o.check());
+}
+
 static void directed() {
     Config c; c.max_price = 1000; c.max_order_qty = 500; c.max_position = 1000;
     Oms o(c);
@@ -92,9 +111,11 @@ static bool fuzz(uint64_t seed, uint32_t bugs, int ops) {
         if (roll < 55) {
             Request r = lim(1 + rng() % 4, ++cl, (rng() & 1) ? Side::Buy : Side::Sell, 90 + rng() % 21, 1 + rng() % 60,
                             (rng() % 10 == 0) ? TimeInForce::IOC : (rng() % 12 == 0 ? TimeInForce::FOK : TimeInForce::GTC));
+            if (rng() % 7 == 0) { r.type = (rng() & 1) ? Type::Stop : Type::StopLimit; r.stop_price = 90 + rng() % 21; }
             if (rng() % 9 == 0) r = mkt(r.account, r.cl_ord_id, r.side, r.qty);
             const Result sr = o.submit(r);
             for (const auto& f : sr.fills) if (o.order(f.maker_id)->account == o.order(f.taker_id)->account) return true;   // traded with itself
+            for (const auto& f : sr.triggered) if (o.order(f.maker_id)->account == o.order(f.taker_id)->account) return true;
             sent.push_back(r);
         } else if (roll < 68 && !sent.empty()) {                       // the client retries: identical request
             const Request& r = sent[rng() % sent.size()];
@@ -150,6 +171,7 @@ static void determinism() {
 int main() {
     directed();
     self_trade();
+    stops();
     determinism();
     int bad = 0;
     for (uint64_t s = 1; s <= 120; ++s) if (fuzz(s, 0, 1200)) ++bad;
@@ -161,6 +183,8 @@ int main() {
         {kSkipOpenOnCancel, "open quantity not reduced on cancel"},
         {kTakerNotCredited, "taker position and cash not updated"},
         {kNoSelfTrade, "an account can trade with its own order"},
+        {kStopNeverTriggers, "stop orders never fire"},
+        {kStopWrongWay, "stop orders fire in the wrong direction"},
     };
     for (const auto& m : mutants) {
         int caught = 0;
