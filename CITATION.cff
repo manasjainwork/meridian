@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Meridian: a C++20 matching engine with Raft replication and an order management layer"
+authors:
+  - family-names: "Jain"
+    given-names: "Manas"
+repository-code: "https://github.com/manasjainwork/meridian"
+version: "0.1.0"
+date-released: "2026-11-01"
