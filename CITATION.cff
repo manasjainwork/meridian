@@ -5,5 +5,18 @@ authors:
   - family-names: "Jain"
     given-names: "Manas"
 repository-code: "https://github.com/manasjainwork/meridian"
-version: "0.1.0"
-date-released: "2026-11-01"
+version: "0.1.1"
+date-released: "2026-11-04"
+doi: "10.5281/zenodo.23856006"
+preferred-citation:
+  type: report
+  title: "Meridian: a test-first matching engine with Raft replication"
+  authors:
+    - family-names: "Jain"
+      given-names: "Manas"
+  year: 2026
+  month: 11
+  doi: "10.5281/zenodo.23856006"
+  url: "https://doi.org/10.5281/zenodo.23856006"
+  publisher:
+    name: "Zenodo"

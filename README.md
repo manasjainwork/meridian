@@ -4,6 +4,8 @@ A matching engine in C++20, built the way a trading firm would build one: every 
 
 Status: work in progress (month 1 of a 12-month plan). Everything here is free to build and run; no paid services.
 
+Technical report: Manas Jain, "Meridian: a test-first matching engine with Raft replication", Zenodo, 2026. [10.5281/zenodo.23856006](https://doi.org/10.5281/zenodo.23856006). It is a technical note, not peer reviewed.
+
 ## Architecture
 
 ```mermaid
@@ -30,7 +32,10 @@ flowchart LR
 | Journal and replay | 32-byte records, CRC32, sequence numbers, one shared `apply()` | `journal.hpp`, `replay.hpp` |
 | Journal writer | Dedicated thread, group commit | `journal_writer.hpp` |
 | Replication | Leader/follower, batched cumulative acks, ack-before-apply | `replication.hpp` |
-| Raft election | Pure state machine plus a seeded cluster simulator | `raft_node.hpp`, `raft_sim.hpp` |
+| Raft | Pure state machine (election, replication, pre-vote, CheckQuorum) plus a seeded cluster simulator | `raft_node.hpp`, `raft_sim.hpp` |
+| Replicated state machines | Committed entries applied to an order book and to the full OMS | `raft_apply.hpp`, `raft_oms.hpp` |
+| Order management | Accounts, idempotent order ids, risk limits, self-trade prevention, stop orders | `oms.hpp` |
+| HTTP gateway | Loopback server over the OMS, with a React front end | `src/gateway.cpp`, `web-ui/` |
 
 ## Design decisions and tradeoffs
 
@@ -48,7 +53,7 @@ flowchart LR
 2. Differential fuzzing of the order book against a `std::map` reference, with invariant checks.
 3. ASan, UBSan and TSan runs.
 4. Journal truncation, corruption and gap detection tests.
-5. Raft: invariants checked after every simulated event, thousands of chaos seeds, liveness after healing, determinism, and mutation tests (five injected bugs, all caught).
+5. Raft: invariants checked after every simulated event, thousands of chaos seeds, liveness after healing, determinism, and mutation tests (12 injected Raft bugs and 7 OMS bugs; the result for each is in write-ups 014, 015, 017, 019, 022 and 024 to 026).
 6. A claim counts only after at least 3 runs. Anything else is labelled a hypothesis. See `docs/methodology.md`.
 
 ## Measurements
@@ -125,19 +130,17 @@ g++ -std=c++20 -O1 -g -fsanitize=address,undefined -Iinclude -o /tmp/t tests/tes
 
 ## Roadmap
 
-Done: Raft election, replication and commit, pre-vote and CheckQuorum (019); IOC, FOK, market orders and modify (016); replicated order books (017); Raft on real processes (018); terminal demo, live view and a first browser view.
+Done: Raft election, replication, commit, pre-vote and CheckQuorum (014, 015, 019); IOC, FOK, market orders and modify (016); replicated order books (017); Raft on real processes (018); real Kraken data and the book mirror (020, 021); order management (022), HTTP gateway (023), self-trade prevention (024), stop orders (025), replicated OMS (026); browser views including a Trade tab; technical report on Zenodo.
 
 Next, in this order:
-1. Stop orders and self-trade prevention
-2. Connect the order book to Raft in the real-process node with a client path (retry, redirect to the leader) and measure replicated-order latency
-3. Snapshots, log compaction and crash recovery
-4. UDP market-data publisher and gateway hardening
-5. Risk checks and order management
-6. Profiling with `perf`, flamegraphs and cachegrind, with a measured speedup
+1. The Raft log entry carries the request itself, and the gateway talks to the cluster with client retry and leader redirect
+2. Snapshots, log compaction and crash recovery
+3. Measure replicated-order latency end to end
+4. Bare-metal Linux re-measurement (fsync, the unexplained tails)
+5. Long data recordings from the free Kraken feed
+6. Profiling with `perf`, then a measured speedup
 7. Market-maker bot and backtester
-8. Latency dashboard beyond the first browser view
-9. Bare-metal Linux re-measurement (fsync, the unexplained tails)
 
 ## Write-ups
 
-Every experiment, bug and correction is in `docs/bugs/` (001 to 019), including the ones where an earlier claim turned out to be wrong.
+Every experiment, bug and correction is in `docs/bugs/` (001 to 026), including the ones where an earlier claim turned out to be wrong.
