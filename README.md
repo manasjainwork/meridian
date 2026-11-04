@@ -6,6 +6,8 @@ Status: work in progress (month 1 of a 12-month plan). Everything here is free t
 
 Technical report: Manas Jain, "Meridian: a test-first matching engine with Raft replication", Zenodo, 2026. [10.5281/zenodo.23856006](https://doi.org/10.5281/zenodo.23856006). It is a technical note, not peer reviewed.
 
+Code archive (v0.1.1): [10.5281/zenodo.23937958](https://doi.org/10.5281/zenodo.23937958).
+
 ## Architecture
 
 ```mermaid
