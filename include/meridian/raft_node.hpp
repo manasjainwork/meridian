@@ -1,6 +1,8 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace meridian::raft {
@@ -16,8 +18,9 @@ enum class MsgType : uint8_t { RequestVote, VoteReply, AppendEntries, AppendRepl
 struct Entry {
     Term term;
     uint64_t cmd;
-    Entry(Term t = 0, uint64_t c = 0) : term(t), cmd(c) {}
-    bool operator==(const Entry& o) const noexcept { return term == o.term && cmd == o.cmd; }
+    std::string data;                // the client request itself (opaque bytes); empty for the no-op and for tests that use cmd only
+    Entry(Term t = 0, uint64_t c = 0, std::string d = {}) : term(t), cmd(c), data(std::move(d)) {}
+    bool operator==(const Entry& o) const noexcept { return term == o.term && cmd == o.cmd && data == o.data; }
 };
 
 // One wire message. Which fields matter depends on `type`:
@@ -101,9 +104,9 @@ public:
     }
 
     // Client command. Returns the log index it was appended at, or 0 if this node is not the leader.
-    uint64_t propose(uint64_t cmd, uint64_t now, std::vector<Message>& out) {
+    uint64_t propose(uint64_t cmd, uint64_t now, std::vector<Message>& out, std::string data = {}) {
         if (role_ != Role::Leader) return 0;
-        p_.log.push_back(Entry{p_.current_term, cmd});
+        p_.log.push_back(Entry{p_.current_term, cmd, std::move(data)});
         ++pv_;
         advance_commit();
         broadcast(now, out);

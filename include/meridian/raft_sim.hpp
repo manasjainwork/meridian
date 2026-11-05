@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <map>
 #include <optional>
 #include <queue>
@@ -78,13 +79,16 @@ public:
     void heal() { group_.assign(cfg_.n, 0); }
     void set_net(const NetConfig& n) { net_ = n; }
 
+    // Optional: the request bytes that go into the log entry of command `cmd` (tests that carry real requests set this).
+    std::function<std::string(uint64_t)> payload;
+
     // Client command to node i (accepted only if it is a leader). Returns the log index or 0.
     uint64_t propose(NodeId i, uint64_t cmd) {
         if (!nodes_[i]) return 0;
         const Role before = nodes_[i]->role();
         out_.clear();
         in_flight_ = cmd;                                    // a single-node leader commits it inside this very call
-        const uint64_t idx = nodes_[i]->propose(cmd, now_, out_);
+        const uint64_t idx = nodes_[i]->propose(cmd, now_, out_, payload ? payload(cmd) : std::string());
         after(i, before);
         in_flight_ = 0;
         return idx;

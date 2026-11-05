@@ -132,10 +132,10 @@ g++ -std=c++20 -O1 -g -fsanitize=address,undefined -Iinclude -o /tmp/t tests/tes
 
 ## Roadmap
 
-Done: Raft election, replication, commit, pre-vote and CheckQuorum (014, 015, 019); IOC, FOK, market orders and modify (016); replicated order books (017); Raft on real processes (018); real Kraken data and the book mirror (020, 021); order management (022), HTTP gateway (023), self-trade prevention (024), stop orders (025), replicated OMS (026); browser views including a Trade tab; technical report on Zenodo.
+Done: Raft election, replication, commit, pre-vote and CheckQuorum (014, 015, 019); IOC, FOK, market orders and modify (016); replicated order books (017); Raft on real processes (018); real Kraken data and the book mirror (020, 021); order management (022), HTTP gateway (023), self-trade prevention (024), stop orders (025), replicated OMS (026); request bytes inside the log entry (027); browser views including a Trade tab; technical report on Zenodo.
 
 Next, in this order:
-1. The Raft log entry carries the request itself, and the gateway talks to the cluster with client retry and leader redirect
+1. Put the request bytes on the wire and in the state file of the real-process node, and connect the gateway to the cluster with client retry and leader redirect
 2. Snapshots, log compaction and crash recovery
 3. Measure replicated-order latency end to end
 4. Bare-metal Linux re-measurement (fsync, the unexplained tails)

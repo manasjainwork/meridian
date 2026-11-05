@@ -5,7 +5,8 @@
 //   3. every OMS passes its own full consistency check.
 // Then wrong ways of applying must be caught: applying the uncommitted tail, swapping two committed entries, and one node
 // running an OMS with a deliberate bug (taker not credited / stops never fire).
-// Honest limit: the request comes from a shared script indexed by the log entry; carrying the request bytes in the entry is the next step.
+// The request travels inside the log entry (Entry::data, 48 bytes). The script is only used to generate requests; replicas decode them from the entries.
+// Also checked: the codec round-trips, rejects malformed bytes, and a node that applies a corrupted entry is caught.
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -29,20 +30,22 @@ static void chaos_step(Sim& s, uint32_t n, uint32_t propose_per_1000) {
 }
 static NetConfig rough_net() { NetConfig n; n.drop_pct = 15; n.dup_pct = 10; n.delay_min = 1; n.delay_max = 100; return n; }
 
-static OmsReplica build(const std::vector<OmsCmd>& script, const std::vector<Entry>& log, uint64_t upto, uint32_t bugs = 0) {
+static OmsReplica build(const std::vector<Entry>& log, uint64_t upto, uint32_t bugs = 0) {
     OmsReplica r(bugs);
-    for (uint64_t i = 0; i < upto && i < log.size(); ++i) r.apply_cmd(script, log[i].cmd);
+    for (uint64_t i = 0; i < upto && i < log.size(); ++i) r.apply_entry(log[i]);
     return r;
 }
 
 struct Stats { uint64_t seeds = 0, converged = 0, with_ops = 0, ops = 0, trades = 0, dups = 0, prefix_checks = 0; };
 
-// mutant: 0 correct, 1 apply uncommitted tail, 2 swap two committed entries, 3 node 0 runs "taker not credited", 4 node 0 runs "stops never fire"
+// mutant: 0 correct, 1 apply uncommitted tail, 2 swap two committed entries, 3 node 0 runs "taker not credited", 4 node 0 runs "stops never fire",
+//         5 node 0 applies its last committed entry with one request byte flipped
 static bool run_seed(uint64_t seed, int mutant, Stats* st, std::string* why) {
     constexpr uint32_t n = 3;
     const std::vector<OmsCmd> script = make_oms_script(seed * 7919 + 1, 3000);
     Config cfg; cfg.n = n;
     Sim s(cfg, seed, rough_net());
+    s.payload = [&script](uint64_t cmd) { return encode_cmd(script[cmd - 1]); };   // the request goes into the log entry
     for (uint64_t i = 0; i < 6000 && s.ok(); ++i) chaos_step(s, n, 20);
     if (!s.ok()) { *why = s.violation(); return false; }
 
@@ -53,11 +56,12 @@ static bool run_seed(uint64_t seed, int mutant, Stats* st, std::string* why) {
         uint64_t upto = c;
         if (mutant == 1) { mine = s.disk_log(i); upto = mine.size(); }
         if (mutant == 2 && mine.size() >= 2) std::swap(mine[mine.size() - 2], mine[mine.size() - 1]);
+        if (i == 0 && mutant == 5 && !mine.empty() && !mine.back().data.empty()) mine.back().data[0] ^= 0x01;
         uint32_t bugs = 0;
         if (i == 0 && mutant == 3) bugs = meridian::oms::kTakerNotCredited;
         if (i == 0 && mutant == 4) bugs = meridian::oms::kStopNeverTriggers;
-        OmsReplica got = build(script, mine, upto, bugs);
-        OmsReplica ref = build(script, s.committed(), c);
+        OmsReplica got = build(mine, upto, bugs);
+        OmsReplica ref = build(s.committed(), c);
         if (st) ++st->prefix_checks;
         std::string inv;
         if (!ref.check(&inv)) { *why = "reference OMS invariant: " + inv; return false; }
@@ -84,11 +88,13 @@ static bool run_seed(uint64_t seed, int mutant, Stats* st, std::string* why) {
     if (!settled) { *why = "cluster did not settle"; return false; }
     s.check_now();
     if (!s.ok()) { *why = s.violation(); return false; }
-    OmsReplica full = build(script, s.committed(), s.committed().size());
+    for (const Entry& e : s.committed()) if (e.cmd != 0 && e.data.size() != kCmdBytes) { *why = "a committed entry carries no request bytes"; return false; }
+    OmsReplica full = build(s.committed(), s.committed().size());
+    if (full.undecodable() != 0) { *why = "a committed entry did not decode"; return false; }
     std::string inv;
     if (!full.check(&inv)) { *why = "OMS invariant: " + inv; return false; }
     for (NodeId i = 0; i < n; ++i) {
-        OmsReplica r = build(script, s.disk_log(i), s.node(i).commit_index());
+        OmsReplica r = build(s.disk_log(i), s.node(i).commit_index());
         if (!r.check(&inv)) { *why = "OMS invariant: " + inv; return false; }
         if (r.digest() != full.digest()) { *why = "after settling node " + std::to_string(i) + " has a different OMS"; return false; }
     }
@@ -118,6 +124,34 @@ int main() {
         CHECK(a.dups() > 0 && a.trades() > 0);
     }
 
+    std::printf("== Request bytes inside a log entry ==\n");
+    {
+        const auto sc = make_oms_script(1, 3000);
+        size_t same = 0, tried = 0, rejected_short = 0, rejected_enum = 0;
+        for (const OmsCmd& o : sc) {
+            const std::string b = encode_cmd(o);
+            OmsCmd back{};
+            ++tried;
+            if (b.size() == kCmdBytes && decode_cmd(b, back) && encode_cmd(back) == b) ++same;
+        }
+        CHECK(same == tried);
+        // the same requests applied through bytes give the same state as applying them directly
+        OmsReplica direct, viabytes;
+        for (size_t i = 0; i < sc.size(); ++i) { direct.apply(sc[i]); viabytes.apply_entry(Entry{1, i + 1, encode_cmd(sc[i])}); }
+        CHECK(direct.digest() == viabytes.digest());
+        const std::string good = encode_cmd(sc[0]);
+        OmsCmd tmp{};
+        for (size_t len = 0; len < kCmdBytes; ++len) if (!decode_cmd(good.substr(0, len), tmp)) ++rejected_short;
+        CHECK(rejected_short == kCmdBytes);                                // every truncation is refused
+        CHECK(!decode_cmd(good + "x", tmp));                               // so is a longer record
+        std::string bad = good; bad[0] = 9;  if (!decode_cmd(bad, tmp)) ++rejected_enum;   // unknown kind
+        bad = good; bad[13] = 7;             if (!decode_cmd(bad, tmp)) ++rejected_enum;   // unknown side
+        CHECK(rejected_enum == 2);
+        OmsReplica junk; junk.apply_entry(Entry{1, 5, "not a request"});   // undecodable bytes are counted, state untouched
+        CHECK(junk.undecodable() == 1 && junk.applied() == 0);
+        std::printf("   %llu of %llu requests round-trip; all %llu truncations and 2 bad enum values refused\n", (ULL)same, (ULL)tried, (ULL)rejected_short);
+    }
+
     std::printf("== Replicated OMS under chaos (300 seeds, 3 nodes) ==\n");
     {
         Stats st; int bad = 0;
@@ -133,8 +167,8 @@ int main() {
     }
 
     std::printf("== The test must catch wrong ways of applying ==\n");
-    const char* names[] = {"", "apply uncommitted tail", "swap last two committed entries", "one node: taker not credited", "one node: stops never fire"};
-    for (int mutant = 1; mutant <= 4; ++mutant) {
+    const char* names[] = {"", "apply uncommitted tail", "swap last two committed entries", "one node: taker not credited", "one node: stops never fire", "one node: a request byte flipped"};
+    for (int mutant = 1; mutant <= 5; ++mutant) {
         int escaped = 0, runs = 0;
         for (uint64_t seed = 1; seed <= 300; ++seed) { ++runs; std::string why; escaped += run_seed(seed, mutant, nullptr, &why) ? 1 : 0; }
         const int caught = runs - escaped;

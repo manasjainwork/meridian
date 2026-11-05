@@ -1,13 +1,16 @@
 #pragma once
 // Connects the replicated log to the order management layer (accounts, positions, cash, idempotency, stops).
-// Like raft_apply.hpp, a Raft entry's `cmd` is a client request number k >= 1 and the request itself is script[k-1]
-// (cmd 0 is Raft's no-op). This step proves the state machine part: if replicas apply the same committed prefix in
-// index order, their OMS state is identical. Carrying the request bytes inside the log entry is the next step.
+// A Raft entry carries the client request itself in Entry::data (a fixed 48-byte record, see encode_cmd). `cmd` stays a
+// unique request number (cmd 0 is Raft's no-op) so the simulator can still check "never invented, never committed twice".
+// If replicas apply the same committed prefix in index order, their OMS state is identical.
+// apply_cmd(script, cmd) is the older path where the request came from a shared script indexed by cmd (docs 017, 026).
 #include <cstdint>
+#include <cstring>
 #include <random>
 #include <string>
 #include <vector>
 #include "meridian/oms.hpp"
+#include "meridian/raft_node.hpp"
 
 namespace meridian::raft {
 
@@ -18,6 +21,34 @@ struct OmsCmd {
     uint64_t order_id;           // Cancel, Modify
     uint32_t price, qty;         // Modify
 };
+
+// Wire form of a request inside a log entry: fixed 48 bytes, host byte order (all replicas here share one machine type).
+// kind u8 | account u32 | cl_ord_id u64 | side u8 | type u8 | tif u8 | price u32 | qty u32 | stop u32 | cancel/modify account u32 | order_id u64 | price u32 | qty u32
+constexpr size_t kCmdBytes = 48;
+inline std::string encode_cmd(const OmsCmd& c) {
+    std::string b(kCmdBytes, '\0');
+    size_t o = 0;
+    auto put = [&](const auto& v) { std::memcpy(&b[o], &v, sizeof v); o += sizeof v; };
+    put(static_cast<uint8_t>(c.kind)); put(c.req.account); put(c.req.cl_ord_id);
+    put(static_cast<uint8_t>(c.req.side)); put(static_cast<uint8_t>(c.req.type)); put(static_cast<uint8_t>(c.req.tif));
+    put(c.req.price); put(c.req.qty); put(c.req.stop_price);
+    put(c.account); put(c.order_id); put(c.price); put(c.qty);
+    return b;
+}
+// Returns false for anything that is not exactly a well-formed record (wrong length, unknown enum value).
+inline bool decode_cmd(const std::string& b, OmsCmd& c) {
+    if (b.size() != kCmdBytes) return false;
+    size_t o = 0;
+    auto get = [&](auto& v) { std::memcpy(&v, &b[o], sizeof v); o += sizeof v; };
+    uint8_t kind, side, type, tif;
+    get(kind); get(c.req.account); get(c.req.cl_ord_id); get(side); get(type); get(tif);
+    get(c.req.price); get(c.req.qty); get(c.req.stop_price);
+    get(c.account); get(c.order_id); get(c.price); get(c.qty);
+    if (kind > OmsCmd::Modify || side > 1 || type > static_cast<uint8_t>(oms::Type::StopLimit) || tif > static_cast<uint8_t>(book::TimeInForce::FOK)) return false;
+    c.kind = static_cast<OmsCmd::Kind>(kind);
+    c.req.side = static_cast<book::Side>(side); c.req.type = static_cast<oms::Type>(type); c.req.tif = static_cast<book::TimeInForce>(tif);
+    return true;
+}
 
 inline oms::Config oms_replica_config(uint32_t bugs = 0) {
     oms::Config c;
@@ -83,9 +114,18 @@ public:
         trades_ += r.fills.size() + r.triggered.size();
     }
     void apply_cmd(const std::vector<OmsCmd>& script, uint64_t cmd) { if (cmd != 0) apply(script[cmd - 1]); }
+    // Apply a committed log entry: the request is decoded from the entry's own bytes. The no-op (cmd 0) is skipped; bytes that
+    // do not decode are counted and skipped (every replica skips the same entries, so they stay identical).
+    void apply_entry(const Entry& e) {
+        if (e.cmd == 0) return;
+        OmsCmd c{};
+        if (!decode_cmd(e.data, c)) { ++undecodable_; return; }
+        apply(c);
+    }
+    uint64_t undecodable() const noexcept { return undecodable_; }
 
     // Everything the OMS shows, plus how many retries were answered from memory and how many requests were refused.
-    uint64_t digest() const { return oms_.digest() * 0x9E3779B97F4A7C15ull ^ (dups_ << 40) ^ (rejects_ << 20) ^ applied_; }
+    uint64_t digest() const { return oms_.digest() * 0x9E3779B97F4A7C15ull ^ (dups_ << 40) ^ (rejects_ << 20) ^ (undecodable_ << 52) ^ applied_; }
     bool check(std::string* why = nullptr) const { return oms_.check(why); }
     const oms::Oms& oms() const noexcept { return oms_; }
     uint64_t applied() const noexcept { return applied_; }
@@ -94,7 +134,7 @@ public:
 
 private:
     oms::Oms oms_;
-    uint64_t applied_ = 0, trades_ = 0, dups_ = 0, rejects_ = 0;
+    uint64_t applied_ = 0, trades_ = 0, dups_ = 0, rejects_ = 0, undecodable_ = 0;
 };
 
 }  // namespace meridian::raft
