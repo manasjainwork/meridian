@@ -143,3 +143,7 @@ target_link_libraries(gateway PRIVATE Threads::Threads)
 add_executable(test_raft_oms tests/test_raft_oms.cpp)
 target_include_directories(test_raft_oms PRIVATE include)
 add_test(NAME raft_oms COMMAND test_raft_oms)
+
+add_executable(test_sequencer tests/test_sequencer.cpp)
+target_link_libraries(test_sequencer PRIVATE meridian_core Threads::Threads)
+add_test(NAME sequencer COMMAND test_sequencer)
