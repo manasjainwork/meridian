@@ -110,7 +110,7 @@ Hypothesis, not a result: when several learning agents trade on one exchange, th
 | Part | State |
 |------|-------|
 | Literature gap table, hypotheses H1 to H4 | written, search not complete |
-| Sequencer design (D1 to D10, milestones M1 to M6, measurement plan) | written; not yet in the repo |
+| Sequencer design (D1 to D10, milestones M1 to M6, measurement plan) | `docs/sequencer-design.md` (proposal) |
 | M1 sequencer core (`include/meridian/sequencer.hpp`, `tests/test_sequencer.cpp`) | tests pass; mutation tests and ThreadSanitizer run still pending; M2 to M6 not started |
 | Kraken recorder with gap report (`tools/feed/`) | running; 8.5 hours in 130 segments as of 7 Nov, see doubts 14 and 15 |
 | Book rebuild checked against Kraken's CRC32 (`tools/ml/book_check.py`) | 3,785,223 checks over 9 files, 0 mismatches |
