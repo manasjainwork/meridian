@@ -15,3 +15,7 @@ Each item is something I saw and cannot yet explain. None of these is a result.
 11. Raft: the figure-8 mutant is found only when entries trickle out one at a time (015). Why exactly is my explanation, not tested.
 12. Kraken v2 WebSocket connection dropped 3 times in one 30 s recording (ConnectionClosedError: no close frame; ConnectionResetError). Cause unknown: Kraken, WSL2 network, or the client's ping setting (ping_interval=20). Not tested.
 13. The Kraken checksum covers the top 10 levels only; the book was subscribed at depth 25. Levels 11 to 25 are not verified by it.
+14. Recording gaps: three gaps of 10.2 h, 7.9 h and 35 min in the 6 to 7 Nov files line up with Windows sleep events (Kernel-Power 42 and 107). The recording that stopped on 7 Nov around 12:30 UTC has no sleep event; the laptop was probably shut down (not checked). Recording only runs while the laptop is on.
+15. Reconnects: 130 snapshots in 8.47 hours of recording; median segment 20.3 s and 73 of 130 shorter than 60 s. Cause unknown (see 12).
+16. Spread: in the longest segments 2 to 4 percent of book messages show a spread above 1 USD (maximum 39.4 USD), and the p99 spread of 7.2 hours is 57 ticks. The rebuilt book matched Kraken's checksum, so these are states of the feed. Why they occur is not known.
+17. Trade signs: 85.3 percent of trades have the same side as the previous trade (31,793 trades). Hypothesis, untested: one aggressive order printed as several trades.

@@ -92,6 +92,8 @@ Caveats that matter:
 | Raft election, replication, pre-vote, CheckQuorum on a deterministic simulator | `./build/test_raft_election`, `test_raft_replication`, `test_raft_prevote` | write-ups 014, 015, 019 |
 | Order books driven by the replicated log | `./build/test_raft_apply` | write-up 017 |
 | Raft on 3 real processes over UDP, kill -9 of the leader, restart from disk | `scripts/raft_failover.sh ./build/raft_main` | write-up 018 |
+| Sequencer core: rings, rotating poll, replay of the applied order | `./build/test_sequencer` | tests only, no latency numbers |
+| Rebuild the recorded Kraken book and check it against Kraken's CRC32 | `python3 tools/ml/book_check.py data/live/*.jsonl.gz` | 0 mismatches in 3,785,223 checks |
 
 Numbers in the demo, live and web views are one-thread service times on WSL2 with synthetic random orders. Quote only the numbers in the Measurements section and in the write-ups.
 
@@ -100,6 +102,22 @@ What the Raft write-ups established (all on a simulator with loss, duplication, 
 - Pre-vote: without it a cut-off node deposed the healthy leader in 80 of 80 runs, with it in 0 of 80 (019). It is off by default in the simulator tests and on in the real-process node.
 - 300 simulated clusters ended with identical order books on all nodes (017).
 - On 3 real processes the books were identical after kill -9 of the leader and a restart, in 3 of 3 runs; election took 117 to 226 ms with pre-vote and 141 to 189 ms without, and the ranges overlap (018, 019).
+
+## Research direction (in progress, nothing measured yet)
+
+Hypothesis, not a result: when several learning agents trade on one exchange, the latency of that exchange changes who wins, and an assumed delay can mislead compared with a measured one. Plan: a C++ engine with a single sequencer thread, Python RL agents, latency as a controlled variable. The literature search so far (`docs/literature-gap-table.md`) suggests the combination is open, but "first" is not claimed until the search is complete.
+
+| Part | State |
+|------|-------|
+| Literature gap table, hypotheses H1 to H4 | written, search not complete |
+| Sequencer design (D1 to D10, milestones M1 to M6, measurement plan) | written; not yet in the repo |
+| M1 sequencer core (`include/meridian/sequencer.hpp`, `tests/test_sequencer.cpp`) | tests pass; mutation tests and ThreadSanitizer run still pending; M2 to M6 not started |
+| Kraken recorder with gap report (`tools/feed/`) | running; 8.5 hours in 130 segments as of 7 Nov, see doubts 14 and 15 |
+| Book rebuild checked against Kraken's CRC32 (`tools/ml/book_check.py`) | 3,785,223 checks over 9 files, 0 mismatches |
+| Segmenter and descriptive stats (`tools/ml/segment.py`, `stats.py`) | done; describes these recordings only |
+| RL agents, simulator, any trained model, any result | not started |
+
+Numbers from WSL2 are observations on one machine, not benchmarks. A latency claim waits for bare-metal Linux.
 
 ## Not established yet
 
@@ -132,17 +150,17 @@ g++ -std=c++20 -O1 -g -fsanitize=address,undefined -Iinclude -o /tmp/t tests/tes
 
 ## Roadmap
 
-Done: Raft election, replication, commit, pre-vote and CheckQuorum (014, 015, 019); IOC, FOK, market orders and modify (016); replicated order books (017); Raft on real processes (018); real Kraken data and the book mirror (020, 021); order management (022), HTTP gateway (023), self-trade prevention (024), stop orders (025), replicated OMS (026); request bytes inside the log entry (027); browser views including a Trade tab; technical report on Zenodo.
+Done: Raft election, replication, commit, pre-vote and CheckQuorum (014, 015, 019); IOC, FOK, market orders and modify (016); replicated order books (017); Raft on real processes (018); real Kraken data and the book mirror (020, 021); order management (022), HTTP gateway (023), self-trade prevention (024), stop orders (025), replicated OMS (026); request bytes inside the log entry (027); browser views including a Trade tab; technical report on Zenodo; sequencer core M1 (tests only); Kraken recorder and gap report; book rebuild verified against Kraken's checksum (see Research direction).
 
 Next, in this order:
 1. Put the request bytes on the wire and in the state file of the real-process node, and connect the gateway to the cluster with client retry and leader redirect
 2. Snapshots, log compaction and crash recovery
 3. Measure replicated-order latency end to end
 4. Bare-metal Linux re-measurement (fsync, the unexplained tails)
-5. Long data recordings from the free Kraken feed
+5. Long data recordings from the free Kraken feed (running; target several days including a weekend)
 6. Profiling with `perf`, then a measured speedup
 7. Market-maker bot and backtester
 
 ## Write-ups
 
-Every experiment, bug and correction is in `docs/bugs/` (001 to 026), including the ones where an earlier claim turned out to be wrong.
+Every experiment, bug and correction is in `docs/bugs/` (001 to 027), including the ones where an earlier claim turned out to be wrong.
