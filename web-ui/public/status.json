@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-10 03:24 UTC",
+ "generated_at": "2026-11-10 04:37 UTC",
  "milestones": [
   {
    "group": "engine",
@@ -168,7 +168,7 @@
   }
  ],
  "recorder": {
-  "files_gz": 26,
-  "last_log_line": "2026-11-10T03:20:01Z recording data/live/kraken-btcusd-20261110T032001Z.jsonl"
+  "files_gz": 27,
+  "last_log_line": "2026-11-10T04:20:02Z recording data/live/kraken-btcusd-20261110T042002Z.jsonl"
  }
 }
