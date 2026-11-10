@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-10 03:11 UTC",
+ "generated_at": "2026-11-10 03:18 UTC",
  "milestones": [
   {
    "group": "engine",
@@ -39,9 +39,15 @@
   },
   {
    "group": "ml",
-   "name": "Kraken recorder with auto-start and gap report",
+   "name": "Kraken recorder and gap report",
    "state": "done",
    "note": "Records only while the laptop is on"
+  },
+  {
+   "group": "ml",
+   "name": "Recorder auto-start at login",
+   "state": "partial",
+   "note": "Set up, not yet tested after a restart"
   },
   {
    "group": "ml",
