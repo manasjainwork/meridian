@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-10 03:18 UTC",
+ "generated_at": "2026-11-10 03:24 UTC",
  "milestones": [
   {
    "group": "engine",
@@ -47,7 +47,7 @@
    "group": "ml",
    "name": "Recorder auto-start at login",
    "state": "partial",
-   "note": "Set up, not yet tested after a restart"
+   "note": "Worked once after a reboot (started 58 s after boot); 3 tests needed"
   },
   {
    "group": "ml",
@@ -169,6 +169,6 @@
  ],
  "recorder": {
   "files_gz": 26,
-  "last_log_line": "2026-11-10T02:35:48Z recording data/live/kraken-btcusd-20261110T023548Z.jsonl"
+  "last_log_line": "2026-11-10T03:20:01Z recording data/live/kraken-btcusd-20261110T032001Z.jsonl"
  }
 }

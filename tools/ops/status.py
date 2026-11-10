@@ -12,7 +12,7 @@ MILESTONES = [
     ("engine", "M5 Virtual-clock mode", "todo", ""),
     ("engine", "M6 Downstream publisher", "todo", ""),
     ("ml", "Kraken recorder and gap report", "done", "Records only while the laptop is on"),
-    ("ml", "Recorder auto-start at login", "partial", "Set up, not yet tested after a restart"),
+    ("ml", "Recorder auto-start at login", "partial", "Worked once after a reboot (started 58 s after boot); 3 tests needed"),
     ("ml", "Book rebuild checked against Kraken's CRC32", "done", ""),
     ("ml", "Segmenter and descriptive stats", "done", "Describes these recordings only"),
     ("ml", "Several days of recording including a weekend", "partial", "In progress"),
