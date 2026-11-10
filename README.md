@@ -105,6 +105,8 @@ What the Raft write-ups established (all on a simulator with loss, duplication, 
 
 ## Research direction (in progress, nothing measured yet)
 
+Live snapshot (Market replay, Architecture, Research tabs): https://manasjainwork.github.io/meridian/ . The Research tab is a snapshot of files on one laptop, not a live feed; the Trade tab needs the local gateway and does not work there.
+
 Hypothesis, not a result: when several learning agents trade on one exchange, the latency of that exchange changes who wins, and an assumed delay can mislead compared with a measured one. Plan: a C++ engine with a single sequencer thread, Python RL agents, latency as a controlled variable. The literature search so far (`docs/literature-gap-table.md`) suggests the combination is open, but "first" is not claimed until the search is complete.
 
 | Part | State |
