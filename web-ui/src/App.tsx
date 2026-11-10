@@ -9,11 +9,12 @@ import Trade from "./components/Trade";
 import Controls from "./components/Controls";
 import Stats from "./components/Stats";
 import Tape from "./components/Tape";
+import Research from "./components/Research";
 
 export default function App() {
   const [replay, setReplay] = useState<Replay | null>(null);
   const [err, setErr] = useState("");
-  const [tab, setTab] = useState<"market" | "trade" | "arch">("market");
+  const [tab, setTab] = useState<"market" | "trade" | "arch" | "research">("market");
   useEffect(() => {
     fetch("replay.json").then((r) => { if (!r.ok) throw new Error(`replay.json: HTTP ${r.status}`); return r.json(); })
       .then(setReplay).catch((e) => setErr(String(e)));
@@ -39,8 +40,9 @@ export default function App() {
         <button className={tab === "market" ? "on" : ""} onClick={() => setTab("market")}>Market</button>
         <button className={tab === "trade" ? "on" : ""} onClick={() => setTab("trade")}>Trade (needs gateway)</button>
         <button className={tab === "arch" ? "on" : ""} onClick={() => setTab("arch")}>Architecture</button>
+        <button className={tab === "research" ? "on" : ""} onClick={() => setTab("research")}>Research</button>
       </div>
-      {tab === "arch" ? <Architecture /> : tab === "trade" ? <Trade /> : <>
+      {tab === "research" ? <Research /> : tab === "arch" ? <Architecture /> : tab === "trade" ? <Trade /> : <>
       <Controls playing={rp.playing} speed={rp.speed} idx={rp.idx} count={replay.frames.length} seconds={f.t / 1000}
         onPlay={rp.setPlaying} onSpeed={rp.setSpeed} onSeek={rp.seek} />
       <Stats frame={f} trades={played} />
