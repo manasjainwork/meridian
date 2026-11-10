@@ -49,6 +49,8 @@ flowchart LR
 6. **Raft as a pure state machine.** No clock, sockets or threads inside the node, so a deterministic simulator can inject loss, duplication, reordering, crashes and partitions from one seed. Cost: an I/O layer must be written later.
 7. **Open-loop load generation.** Latency is measured from the intended send time to avoid coordinated omission.
 
+Cost per operation, memory, the unbounded OMS maps and the scaling paths are in `docs/complexity-and-scaling.md` (from reading the code, not new measurements).
+
 ## Testing approach
 
 1. Unit tests for every component, including endianness and protocol edge cases.
