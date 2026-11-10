@@ -51,6 +51,8 @@ flowchart LR
 
 Cost per operation, memory, the unbounded OMS maps and the scaling paths are in `docs/complexity-and-scaling.md` (from reading the code, not new measurements).
 
+Cost per operation, memory, the unbounded OMS maps and the scaling paths are in `docs/complexity-and-scaling.md` (from reading the code, not new measurements).
+
 ## Testing approach
 
 1. Unit tests for every component, including endianness and protocol edge cases.
