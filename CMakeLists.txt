@@ -147,3 +147,7 @@ add_test(NAME raft_oms COMMAND test_raft_oms)
 add_executable(test_sequencer tests/test_sequencer.cpp)
 target_link_libraries(test_sequencer PRIVATE meridian_core Threads::Threads)
 add_test(NAME sequencer COMMAND test_sequencer)
+
+add_executable(test_sequencer_mutants tests/test_sequencer_mutants.cpp)
+target_link_libraries(test_sequencer_mutants PRIVATE meridian_core)
+add_test(NAME sequencer_mutants COMMAND test_sequencer_mutants)

@@ -56,10 +56,13 @@ inline oms::Result apply_msg(oms::Oms& o, const Msg& m) {
     return {};
 }
 
+// Bit flags that deliberately break the sequencer so the mutation tests can prove they would notice (see test_sequencer_mutants).
+enum Bug : uint32_t { kDropRequest = 1, kSkipSeq = 2, kNoRotation = 4, kSwallowReply = 8, kStaleReply = 16, kReorder = 32, kApplyTwice = 64 };
+
 template <size_t P, size_t N>
 class Sequencer {
 public:
-    explicit Sequencer(const oms::Config& c, size_t reserve_applied = 0) : oms_(c) { applied_.reserve(reserve_applied); }
+    explicit Sequencer(const oms::Config& c, size_t reserve_applied = 0, uint32_t bugs = 0) : oms_(c), bugs_(bugs) { applied_.reserve(reserve_applied); }
 
     // producer side (producer p only): false = ring full, counted as busy; the request was NOT accepted
     bool submit(size_t p, const Msg& m) noexcept {
@@ -88,13 +91,15 @@ public:
             const size_t p = (start + i) % P;
             Msg m;
             if (!in_[p].try_pop(m)) continue;
-            const oms::Result r = apply_msg(oms_, m);
-            const Reply rep = make_reply(++seq_, m.tag, r);
-            applied_.push_back({static_cast<uint32_t>(p), m, rep});
-            while (!out_[p].try_push(rep)) reply_stalls_.fetch_add(1, std::memory_order_relaxed);
+            ++popped_;
             ++done;
+            if ((bugs_ & kDropRequest) && popped_ % 97 == 0) continue;
+            if ((bugs_ & kReorder) && !has_held_ && popped_ % 61 == 0) { held_ = m; held_p_ = p; has_held_ = true; continue; }
+            const bool flush = has_held_ && held_p_ == p;   // release the held request after that producer's next one
+            process(p, m);
+            if (flush) { has_held_ = false; process(held_p_, held_); }
         }
-        rot_ = (start + 1) % P;
+        rot_ = (bugs_ & kNoRotation) ? start : (start + 1) % P;
         return done;
     }
 
@@ -105,7 +110,25 @@ public:
     uint64_t reply_stalls() const noexcept { return reply_stalls_.load(std::memory_order_relaxed); }
 
 private:
+    void process(size_t p, const Msg& m) {
+        const oms::Result r = apply_msg(oms_, m);
+        if ((bugs_ & kApplyTwice) && popped_ % 53 == 0) apply_msg(oms_, m);
+        if ((bugs_ & kSkipSeq) && popped_ % 71 == 0) ++seq_;
+        const oms::Result& shown = ((bugs_ & kStaleReply) && popped_ % 67 == 0) ? prev_r_ : r;
+        const Reply rep = make_reply(++seq_, m.tag, shown);
+        prev_r_ = r;
+        applied_.push_back({static_cast<uint32_t>(p), m, rep});
+        if ((bugs_ & kSwallowReply) && popped_ % 89 == 0) return;
+        while (!out_[p].try_push(rep)) reply_stalls_.fetch_add(1, std::memory_order_relaxed);
+    }
+
     oms::Oms oms_;
+    uint32_t bugs_ = 0;
+    uint64_t popped_ = 0;
+    Msg held_{};
+    size_t held_p_ = 0;
+    bool has_held_ = false;
+    oms::Result prev_r_{};
     std::array<SpscQueue<Msg, N>, P> in_;
     std::array<SpscQueue<Reply, N>, P> out_;
     std::array<std::atomic<uint64_t>, P> busy_{};

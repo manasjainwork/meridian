@@ -94,7 +94,7 @@ Caveats that matter:
 | Raft election, replication, pre-vote, CheckQuorum on a deterministic simulator | `./build/test_raft_election`, `test_raft_replication`, `test_raft_prevote` | write-ups 014, 015, 019 |
 | Order books driven by the replicated log | `./build/test_raft_apply` | write-up 017 |
 | Raft on 3 real processes over UDP, kill -9 of the leader, restart from disk | `scripts/raft_failover.sh ./build/raft_main` | write-up 018 |
-| Sequencer core: rings, rotating poll, replay of the applied order | `./build/test_sequencer` | tests only, no latency numbers |
+| Sequencer core: rings, rotating poll, replay of the applied order | `./build/test_sequencer`, `./build/test_sequencer_mutants` | tests only, no latency numbers |
 | Rebuild the recorded Kraken book and check it against Kraken's CRC32 | `python3 tools/ml/book_check.py data/live/*.jsonl.gz` | 0 mismatches in 3,785,223 checks |
 
 Numbers in the demo, live and web views are one-thread service times on WSL2 with synthetic random orders. Quote only the numbers in the Measurements section and in the write-ups.
@@ -117,7 +117,7 @@ Hypothesis, not a result: when several learning agents trade on one exchange, th
 |------|-------|
 | Literature gap table, hypotheses H1 to H4 | written, search not complete |
 | Sequencer design (D1 to D10, milestones M1 to M6, measurement plan) | `docs/sequencer-design.md` (proposal) |
-| M1 sequencer core (`include/meridian/sequencer.hpp`, `tests/test_sequencer.cpp`) | tests pass; mutation tests and ThreadSanitizer run still pending; M2 to M6 not started |
+| M1 sequencer core (`include/meridian/sequencer.hpp`, `tests/test_sequencer.cpp`) | done on one machine (WSL2): tests pass, 6 of 7 mutants caught, ThreadSanitizer clean in 3 runs at 5,000 ops per producer; M2 to M6 not started |
 | Kraken recorder with gap report (`tools/feed/`) | running; 8.5 hours in 130 segments as of 7 Nov, see doubts 14 and 15 |
 | Book rebuild checked against Kraken's CRC32 (`tools/ml/book_check.py`) | 3,785,223 checks over 9 files, 0 mismatches |
 | Segmenter and descriptive stats (`tools/ml/segment.py`, `stats.py`) | done; describes these recordings only |

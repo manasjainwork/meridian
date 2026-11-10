@@ -5,7 +5,7 @@ Missing inputs become null; nothing is invented."""
 import csv, datetime as dt, glob, json, re, statistics
 
 MILESTONES = [
-    ("engine", "M1 Sequencer core", "partial", "Core and tests pass on the author's machine; mutation tests and a ThreadSanitizer run pending"),
+    ("engine", "M1 Sequencer core", "done", "Tests pass; 6 of 7 mutants caught (1 absorbed by OMS idempotency); ThreadSanitizer clean in 3 runs at 5,000 ops per producer, on WSL2"),
     ("engine", "M2 Event log v2 and replay", "todo", ""),
     ("engine", "M3 Binary TCP gateway v2", "todo", ""),
     ("engine", "M4 Timing (T1 to T4, histograms)", "todo", ""),

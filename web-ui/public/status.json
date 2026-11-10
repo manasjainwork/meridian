@@ -1,11 +1,11 @@
 {
- "generated_at": "2026-11-10 04:37 UTC",
+ "generated_at": "2026-11-10 05:38 UTC",
  "milestones": [
   {
    "group": "engine",
    "name": "M1 Sequencer core",
-   "state": "partial",
-   "note": "Core and tests pass on the author's machine; mutation tests and a ThreadSanitizer run pending"
+   "state": "done",
+   "note": "Tests pass; 6 of 7 mutants caught (1 absorbed by OMS idempotency); ThreadSanitizer clean in 3 runs at 5,000 ops per producer, on WSL2"
   },
   {
    "group": "engine",
@@ -168,7 +168,7 @@
   }
  ],
  "recorder": {
-  "files_gz": 27,
-  "last_log_line": "2026-11-10T04:20:02Z recording data/live/kraken-btcusd-20261110T042002Z.jsonl"
+  "files_gz": 28,
+  "last_log_line": "2026-11-10T05:20:03Z recording data/live/kraken-btcusd-20261110T052003Z.jsonl"
  }
 }

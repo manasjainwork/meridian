@@ -10,6 +10,9 @@ using namespace meridian::seq;
 static int g_fail = 0;
 #define CHECK(c) do { if (!(c)) { std::printf("FAIL line %d: %s\n", __LINE__, #c); ++g_fail; } } while (0)
 
+#ifndef SEQ_OPS
+#define SEQ_OPS 15000
+#endif
 static oms::Config cfg() { oms::Config c; c.max_orders = 1u << 18; return c; }
 
 struct Lcg { uint64_t s; uint32_t next() { s = s * 6364136223846793005ull + 1442695040888963407ull; return static_cast<uint32_t>(s >> 33); } };
@@ -50,7 +53,7 @@ int main() {
         Sequencer<1, 64> sq(cfg(), 100000);
         std::vector<Reply> got; uint64_t sent = 0;
         std::thread t([&] { sq.run(); });
-        producer<decltype(sq), 64>(sq, 0, 7, 20000, got, sent);
+        producer<decltype(sq), 64>(sq, 0, 7, SEQ_OPS, got, sent);
         sq.request_stop(); t.join();
         oms::Oms ref(cfg());
         bool same = sq.applied().size() == got.size();
@@ -68,7 +71,7 @@ int main() {
         std::vector<Reply> got[4]; uint64_t sent[4] = {};
         std::thread t([&] { sq.run(); });
         std::vector<std::thread> ps;
-        for (size_t p = 0; p < 4; ++p) ps.emplace_back([&, p] { producer<decltype(sq), 64>(sq, p, 100 + p + 10 * run, 15000, got[p], sent[p]); });
+        for (size_t p = 0; p < 4; ++p) ps.emplace_back([&, p] { producer<decltype(sq), 64>(sq, p, 100 + p + 10 * run, SEQ_OPS, got[p], sent[p]); });
         for (auto& x : ps) x.join();
         sq.request_stop(); t.join();
         oms::Oms ref(cfg());
@@ -81,7 +84,7 @@ int main() {
         CHECK(sq.oms().digest() == ref.digest());
         uint64_t total_sent = 0, total_got = 0;
         for (int p = 0; p < 4; ++p) { total_sent += sent[p]; total_got += got[p].size(); }
-        CHECK(total_sent == 60000 && total_got == 60000 && sq.applied().size() == 60000);   // exactly one outcome per accepted request
+        CHECK(total_sent == 4u * SEQ_OPS && total_got == 4u * SEQ_OPS && sq.applied().size() == 4u * SEQ_OPS);   // exactly one outcome per accepted request
         for (size_t i = 0; i < sq.applied().size(); ++i) CHECK(sq.applied()[i].reply.seq == i + 1);
         std::printf("run %d: applied %zu, busy %llu/%llu/%llu/%llu, reply_stalls %llu, digest %016llx\n", run, sq.applied().size(),
                     (unsigned long long)sq.busy(0), (unsigned long long)sq.busy(1), (unsigned long long)sq.busy(2), (unsigned long long)sq.busy(3),

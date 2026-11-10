@@ -91,7 +91,7 @@ Six milestones; each gate must pass before the next starts.
 
 | Milestone | Gate | State |
 |---|---|---|
-| M1 Sequencer core | Checksum identical to the single-thread run; ThreadSanitizer clean; ring-full test: every request has exactly one outcome | Core and tests written, pass on the author's machine (3 runs); mutation tests and a TSan run on the author's machine pending |
+| M1 Sequencer core | Checksum identical to the single-thread run; ThreadSanitizer clean; ring-full test: every request has exactly one outcome | Done on the author's machine (WSL2): tests pass in 3 runs; 6 of 7 mutants are caught (the 7th, ApplyTwice, is absorbed by OMS idempotency); ThreadSanitizer reported nothing in 3 runs at 5,000 ops per producer |
 | M2 Event log v2 and replay | Round-trip, truncation, bad-CRC and sequence-gap tests; replay reproduces the book digest and every fill | Not started |
 | M3 Binary TCP gateway v2 | Parser tests (split reads, bad length, bad type, fuzzed bytes); one test drives the HTTP and TCP paths and compares logs | Not started |
 | M4 Timing | TSC calibration check passes; histograms from at least three runs per rate, checksum still identical | Not started |
