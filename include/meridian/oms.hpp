@@ -64,6 +64,7 @@ struct Config {
     uint32_t max_order_qty = 1000000;
     int64_t max_position = 1000000;   // lots, long or short, counting open orders of the same side
     uint32_t bugs = 0;
+    uint32_t seen_window = 1u << 16;   // idempotency memory: the last this-many requests; an older duplicate is treated as new
 };
 
 struct OrderRec {
@@ -91,16 +92,21 @@ struct Account {
 
 class Oms {
 public:
-    explicit Oms(const Config& c) : cfg_(c), book_(c.max_orders, c.max_price) { fills_.reserve(256); }
+    explicit Oms(const Config& c) : cfg_(c), book_(c.max_orders, c.max_price), seen_(c.seen_window ? c.seen_window : 1) {
+        fills_.reserve(256);
+        orders_.reserve(c.max_orders);
+        uint32_t b = 1;
+        while (b < seen_.size()) b <<= 1;
+        seen_head_.assign(b, kNil);
+    }
 
     Result submit(const Request& r) {
-        const auto key = std::make_pair(r.account, r.cl_ord_id);
         if (!(cfg_.bugs & kNoIdempotency)) {
-            const auto it = seen_.find(key);
-            if (it != seen_.end()) {
+            const Seen* sp = seen_find(r.account, r.cl_ord_id);
+            if (sp) {
                 Result x;
-                if (!(it->second.req == r)) { x.reject = Reject::KeyReuse; return x; }
-                x = it->second.res;
+                if (!(sp->req == r)) { x.reject = Reject::KeyReuse; return x; }
+                x = sp->res;
                 x.duplicate = true;
                 return x;
             }
@@ -108,7 +114,7 @@ public:
         Result res = do_submit(r);
         run_triggers(res.triggered);
         if (res.status == Status::Pending) res.status = orders_.at(res.order_id).status;   // a stop already past its price fired at once
-        seen_[key] = Seen{r, res};
+        seen_put(r, res);
         return res;
     }
 
@@ -240,7 +246,31 @@ public:
     }
 
 private:
-    struct Seen { Request req; Result res; };
+    static constexpr uint32_t kNil = 0xFFFFFFFFu;
+    struct Seen { Request req{}; Result res; uint32_t next = kNil; bool used = false; };
+    // Fixed ring of the last seen_window requests, indexed by a chained hash made of two flat arrays: no node allocations.
+    static uint32_t hkey(uint32_t a, uint64_t c) noexcept {
+        uint64_t x = c * 0x9E3779B97F4A7C15ull ^ (static_cast<uint64_t>(a) << 32 | a);
+        x ^= x >> 29; x *= 0xBF58476D1CE4E5B9ull; x ^= x >> 32;
+        return static_cast<uint32_t>(x);
+    }
+    const Seen* seen_find(uint32_t a, uint64_t c) const noexcept {
+        for (uint32_t i = seen_head_[hkey(a, c) & (seen_head_.size() - 1)]; i != kNil; i = seen_[i].next)
+            if (seen_[i].req.account == a && seen_[i].req.cl_ord_id == c) return &seen_[i];
+        return nullptr;
+    }
+    void seen_put(const Request& r, const Result& res) {
+        const uint32_t slot = static_cast<uint32_t>(seen_count_++ % seen_.size());
+        Seen& s = seen_[slot];
+        if (s.used) {   // evict the oldest entry from its chain
+            uint32_t* link = &seen_head_[hkey(s.req.account, s.req.cl_ord_id) & (seen_head_.size() - 1)];
+            while (*link != slot) link = &seen_[*link].next;
+            *link = s.next;
+        }
+        s.req = r; s.res = res; s.used = true;   // copy-assign reuses the vectors' capacity once warm
+        uint32_t& head = seen_head_[hkey(r.account, r.cl_ord_id) & (seen_head_.size() - 1)];
+        s.next = head; head = slot;
+    }
 
     static Result& fail(Result& r, Reject why) { r.reject = why; r.status = Status::Rejected; return r; }
     static void add_open(Account& a, Side s, int64_t d) { (s == Side::Buy ? a.open_buy : a.open_sell) += d; }
@@ -365,7 +395,9 @@ private:
     std::vector<book::Fill> fills_;
     std::unordered_map<uint64_t, OrderRec> orders_;
     std::map<uint32_t, Account> accounts_;
-    std::map<std::pair<uint32_t, uint64_t>, Seen> seen_;
+    std::vector<Seen> seen_;
+    std::vector<uint32_t> seen_head_;
+    uint64_t seen_count_ = 0;
     uint64_t next_id_ = 1;
     uint32_t last_px_ = 0;
     std::set<uint64_t> pending_;   // ids of stop orders waiting, ascending

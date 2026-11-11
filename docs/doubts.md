@@ -23,3 +23,5 @@ Each item is something I saw and cannot yet explain. None of these is a result.
 19. Double apply is invisible: the OMS answers a repeated (account, cl_ord_id) from its first result and a repeated cancel with NotOpen, so a sequencer bug that applies a Submit or Cancel twice leaves state, digest and replay unchanged (mutant ApplyTwice, test_sequencer_mutants). This is by design for retries, but it means replay cannot detect that kind of bug. Detecting it needs a counter, such as applied count against sequence number. Not built.
 
 Update to doubt 18 (OMS unbounded memory): measured in bench/oms_alloc_bench.cpp, 3 runs on WSL2: 2.008 allocations and 193.8 live bytes per request, identical each run; the book allocates nothing. Which allocations these are is still a hypothesis.
+
+Doubt 20 (idempotency window): the Oms now remembers only the last seen_window requests (default 65,536). A duplicate older than that is accepted as a new order. A real exchange also dedupes within a bounded window, but the right size for Meridian is not decided and the gateway does not warn the client. Not tested beyond the window size.
