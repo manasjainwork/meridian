@@ -23,15 +23,15 @@ bench/oms_alloc_bench.cpp runs the same deterministic stream (200,000 operations
 ## Next
 Bound seen_ and orders_, remove the allocations, rerun this benchmark three times, compare.
 
-## Step 1: bounded idempotency memory (measured, 3 runs, WSL2)
+## Step 1: bounded idempotency memory (measured, 6 runs in two sessions, WSL2)
 Change: seen_ (std::map, never erased) became a fixed ring of the last seen_window requests (default 65,536) with a chained hash over two flat arrays; orders_ now reserves max_orders buckets up front. Tests oms, raft_oms, sequencer and sequencer_mutants pass.
 
 Same benchmark, before -> after:
-- allocations per op: 2.008 -> 1.256 (401,696 -> 251,225), identical in all 3 runs
-- live bytes growth per op: 193.8 -> 66.8 (38,765,456 -> 13,350,912), identical in all 3 runs
-- p50: 304 / 351 / 339 ns -> 181 / 202 / 201 ns
-- p99.9: 6.5-29.8 us -> 2.2-16.1 us
-- max: 4.4-5.1 ms -> 48-171 us
+- allocations per op: 2.008 -> 1.256 (401,696 -> 251,225), identical in all 6 runs
+- live bytes growth per op: 193.8 -> 66.8 (38,765,456 -> 13,350,912), identical in all 6 runs
+- p50: 304 / 351 / 339 ns -> 176-202 ns (6 runs)
+- p99.9: 6.5-29.8 us -> 2.2-16.1 us (6 runs; wide spread, WSL2 noise)
+- max: 4.4-5.1 ms -> 47-171 us (6 runs)
 
 Still not shown: the cause of the old multi-millisecond max (hypothesis: rehash of orders_, not verified), and how much of the remaining growth is the ring filling up once versus orders_ nodes.
 
