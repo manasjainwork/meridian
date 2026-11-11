@@ -39,3 +39,18 @@ Behaviour change: a duplicate cl_ord_id older than seen_window requests is treat
 
 ## Remaining
 orders_ nodes (never erased), fills vector copies in Result, open_orders() and would_self_trade() scan all orders ever seen, check() and digest() walk all history.
+
+## Step 2: order records in fixed chunks (measured, 3 runs, WSL2)
+Change: orders_ (unordered_map, one node per order, never erased) became OrderStore: records in fixed chunks of 1024 ids. A chunk older than the kept window (default max_orders ids) is freed; its open and pending orders move to a small map, finished ones are forgotten. New test tests/test_oms_retire.cpp (200,000 orders through an Oms with max_orders 4096): the old open order is still found and can be cancelled, an old finished order is forgotten (order() returns nullptr, cancel gives UnknownOrder), check() passes. All 20 tests pass.
+
+Same benchmark, step 1 -> step 2:
+- allocations per op: 1.256 -> 0.556 (251,225 -> 111,148), identical in all 3 runs
+- live bytes growth per op: 66.8 -> 56.3 (13,350,912 -> 11,252,512), identical in all 3 runs
+- p50 157 / 202 / 171 ns, p99 655-975 ns, p99.9 5.3-15.3 us, max 82-117 us. Step 1 was p50 176-202 ns. No clear time change is claimed; the spread between runs is as large as the difference.
+
+What this does not show: the memory bound. The benchmark places 140k orders and the kept window here is 262,144 ids, so nothing is freed in it and the live growth is the chunks. The bound is only shown functionally by test_oms_retire, not by a memory measurement.
+
+Behaviour changes: order() and cancel() on a finished order older than the window answer "unknown"; digest() no longer includes forgotten finished orders (two Oms with the same history still agree). Recorded as doubt 21.
+
+## Remaining
+The 111,148 allocations left are most likely the fills vector copied into Result for orders that trade (hypothesis, not verified). pending_ is a std::set and still allocates per stop order. would_self_trade() and check() still scan every kept record.

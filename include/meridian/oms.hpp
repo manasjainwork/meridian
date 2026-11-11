@@ -12,8 +12,11 @@
 // It is a deterministic state machine: the same sequence of requests gives the same state and the same digest.
 // No clock, no randomness, ids come from a counter. That is what lets it sit behind a Raft log later.
 #include <cstdint>
+#include <algorithm>
 #include <map>
+#include <memory>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -64,6 +67,7 @@ struct Config {
     uint32_t max_order_qty = 1000000;
     int64_t max_position = 1000000;   // lots, long or short, counting open orders of the same side
     uint32_t bugs = 0;
+    uint32_t order_history = 0;        // order records kept in full, in ids; 0 means max_orders. Older finished orders are dropped.
     uint32_t seen_window = 1u << 16;   // idempotency memory: the last this-many requests; an older duplicate is treated as new
 };
 
@@ -90,11 +94,80 @@ struct Account {
     int64_t open_sell = 0;
 };
 
+// Order records in fixed chunks of 1024 ids, so a new order costs no allocation except one chunk per 1024 orders.
+// A chunk older than `keep` chunks is freed; the records in it that are still live (open or pending) move to a small
+// map, and finished ones are forgotten. order() on a forgotten id returns nullptr. Memory is bounded by the kept
+// chunks plus the live orders, not by the number of orders ever placed.
+class OrderStore {
+public:
+    static constexpr uint32_t kChunk = 1024;
+    OrderStore(uint32_t keep_chunks, uint32_t sweep_limit) : keep_(keep_chunks ? keep_chunks : 1), sweep_limit_(sweep_limit), base_limit_(sweep_limit) { chunks_.reserve(4096); }
+    OrderRec* find(uint64_t id) noexcept {
+        const uint64_t c = id / kChunk;
+        if (c < chunks_.size() && chunks_[c]) { Chunk& ch = *chunks_[c]; const uint32_t i = static_cast<uint32_t>(id % kChunk); return ch.used[i] ? &ch.r[i] : nullptr; }
+        const auto it = old_.find(id);
+        return it == old_.end() ? nullptr : &it->second;
+    }
+    const OrderRec* find(uint64_t id) const noexcept { return const_cast<OrderStore*>(this)->find(id); }
+    OrderRec& at(uint64_t id) { OrderRec* p = find(id); if (!p) throw std::out_of_range("no such order"); return *p; }
+    const OrderRec& at(uint64_t id) const { const OrderRec* p = find(id); if (!p) throw std::out_of_range("no such order"); return *p; }
+    OrderRec& put(uint64_t id, const OrderRec& rec) {
+        const uint64_t c = id / kChunk;
+        if (c >= chunks_.size()) chunks_.resize(c + 1);
+        if (!chunks_[c]) { chunks_[c] = std::make_unique<Chunk>(); retire_older(c); }
+        Chunk& ch = *chunks_[c];
+        const uint32_t i = static_cast<uint32_t>(id % kChunk);
+        ch.r[i] = rec; ch.used[i] = true;
+        return ch.r[i];
+    }
+    void erase(uint64_t id) {
+        const uint64_t c = id / kChunk;
+        if (c < chunks_.size() && chunks_[c]) chunks_[c]->used[id % kChunk] = false; else old_.erase(id);
+    }
+    // f(const OrderRec&) -> bool; stops and returns false as soon as f returns false. Order is not defined.
+    template <class F> bool all(F f) const {
+        for (const auto& kv : old_) if (!f(kv.second)) return false;
+        for (const auto& up : chunks_) if (up) for (uint32_t i = 0; i < kChunk; ++i) if (up->used[i] && !f(up->r[i])) return false;
+        return true;
+    }
+    // Ascending id order.
+    template <class F> void each_ordered(F f) const {
+        std::vector<uint64_t> ids;
+        ids.reserve(old_.size());
+        for (const auto& kv : old_) ids.push_back(kv.first);
+        std::sort(ids.begin(), ids.end());
+        for (const uint64_t id : ids) f(old_.at(id));
+        for (const auto& up : chunks_) if (up) for (uint32_t i = 0; i < kChunk; ++i) if (up->used[i]) f(up->r[i]);
+    }
+private:
+    struct Chunk { OrderRec r[kChunk]; bool used[kChunk]; };
+    static bool live(const OrderRec& o) noexcept { return o.status == Status::Open || o.status == Status::Pending; }
+    void retire_older(uint64_t c) {
+        if (c < keep_) return;
+        for (; retire_ <= c - keep_; ++retire_) {
+            auto& up = chunks_[retire_];
+            if (!up) continue;
+            for (uint32_t i = 0; i < kChunk; ++i) if (up->used[i] && live(up->r[i])) old_.emplace(retire_ * kChunk + i, up->r[i]);
+            up.reset();
+        }
+        if (old_.size() > sweep_limit_) {
+            for (auto it = old_.begin(); it != old_.end();) it = live(it->second) ? std::next(it) : old_.erase(it);
+            sweep_limit_ = std::max<size_t>(base_limit_, 2 * old_.size());
+        }
+    }
+    uint64_t keep_;
+    uint64_t retire_ = 0;
+    size_t sweep_limit_, base_limit_;
+    std::vector<std::unique_ptr<Chunk>> chunks_;
+    std::unordered_map<uint64_t, OrderRec> old_;
+};
+
 class Oms {
 public:
-    explicit Oms(const Config& c) : cfg_(c), book_(c.max_orders, c.max_price), seen_(c.seen_window ? c.seen_window : 1) {
+    explicit Oms(const Config& c) : cfg_(c), book_(c.max_orders, c.max_price),
+          orders_((std::max(c.order_history ? c.order_history : c.max_orders, 1024u) + OrderStore::kChunk - 1) / OrderStore::kChunk + 1, 2 * c.max_orders + 1024),
+          seen_(c.seen_window ? c.seen_window : 1) {
         fills_.reserve(256);
-        orders_.reserve(c.max_orders);
         uint32_t b = 1;
         while (b < seen_.size()) b <<= 1;
         seen_head_.assign(b, kNil);
@@ -120,9 +193,9 @@ public:
 
     Result cancel(uint32_t account, uint64_t order_id) {
         Result res;
-        const auto it = orders_.find(order_id);
-        if (it == orders_.end()) return fail(res, Reject::UnknownOrder);
-        OrderRec& o = it->second;
+        OrderRec* op = orders_.find(order_id);
+        if (!op) return fail(res, Reject::UnknownOrder);
+        OrderRec& o = *op;
         if (o.account != account && !(cfg_.bugs & kCancelAnyAccount)) return fail(res, Reject::NotOwner);
         if (o.status == Status::Pending) {                       // a stop order that has not fired: nothing is in the book
             pending_.erase(order_id);
@@ -145,9 +218,9 @@ public:
     // and may trade at once; the same price with a smaller quantity keeps its place.
     Result modify(uint32_t account, uint64_t order_id, uint32_t new_price, uint32_t new_qty) {
         Result res;
-        const auto it = orders_.find(order_id);
-        if (it == orders_.end()) return fail(res, Reject::UnknownOrder);
-        OrderRec& o = it->second;
+        OrderRec* op = orders_.find(order_id);
+        if (!op) return fail(res, Reject::UnknownOrder);
+        OrderRec& o = *op;
         if (o.account != account && !(cfg_.bugs & kCancelAnyAccount)) return fail(res, Reject::NotOwner);
         if (o.status != Status::Open) return fail(res, Reject::NotOpen);
         if (new_qty == 0 || new_price == 0 || new_price >= cfg_.max_price) return fail(res, Reject::BadParam);
@@ -176,7 +249,7 @@ public:
         return res;
     }
 
-    const OrderRec* order(uint64_t id) const { const auto it = orders_.find(id); return it == orders_.end() ? nullptr : &it->second; }
+    const OrderRec* order(uint64_t id) const { return orders_.find(id); }
     const Account* account(uint32_t id) const { const auto it = accounts_.find(id); return it == accounts_.end() ? nullptr : &it->second; }
     const std::map<uint32_t, Account>& accounts() const noexcept { return accounts_; }
     const book::OrderBook& book() const noexcept { return book_; }
@@ -191,10 +264,7 @@ public:
 
     std::vector<OrderRec> open_orders(uint32_t account) const {
         std::vector<OrderRec> v;
-        for (uint64_t id = 1; id < next_id_; ++id) {
-            const auto it = orders_.find(id);
-            if (it != orders_.end() && it->second.account == account && it->second.status == Status::Open) v.push_back(it->second);
-        }
+        orders_.each_ordered([&](const OrderRec& o) { if (o.account == account && o.status == Status::Open) v.push_back(o); });
         return v;
     }
 
@@ -208,8 +278,7 @@ public:
         if (cash != 0) return fail_("cash does not sum to zero");
         std::map<uint32_t, std::pair<int64_t, int64_t>> open;
         int64_t rest_buy = 0, rest_sell = 0;
-        for (const auto& kv : orders_) {
-            const OrderRec& o = kv.second;
+        const bool orders_ok = orders_.all([&](const OrderRec& o) {
             if (o.status == Status::Open) {
                 if (o.remaining == 0) return fail_("open order with nothing remaining");
                 (o.side == Side::Buy ? open[o.account].first : open[o.account].second) += o.remaining;
@@ -217,7 +286,9 @@ public:
             } else if (o.status != Status::Pending && o.remaining != 0) return fail_("closed order with quantity remaining");
             if (o.status == Status::Pending && stop_hit(o.side, o.stop, last_px_, false)) return fail_("a stop order that should have fired is still pending");
             if (o.filled + o.remaining > o.qty) return fail_("order over-filled");
-        }
+            return true;
+        });
+        if (!orders_ok) return false;
         for (const auto& kv : accounts_) {
             const auto it = open.find(kv.first);
             const int64_t b = it == open.end() ? 0 : it->second.first, s = it == open.end() ? 0 : it->second.second;
@@ -235,12 +306,9 @@ public:
         auto mix = [&](uint64_t x) { h ^= x + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2); h *= 0x100000001B3ull; };
         for (uint32_t p = 1; p < cfg_.max_price; ++p) { mix(book_.qty_at(Side::Buy, p)); mix(book_.qty_at(Side::Sell, p) << 1); }
         for (const auto& kv : accounts_) { mix(kv.first); mix(static_cast<uint64_t>(kv.second.position)); mix(static_cast<uint64_t>(kv.second.cash)); mix(static_cast<uint64_t>(kv.second.open_buy)); mix(static_cast<uint64_t>(kv.second.open_sell)); }
-        for (uint64_t id = 1; id < next_id_; ++id) {
-            const auto it = orders_.find(id);
-            if (it == orders_.end()) continue;
-            const OrderRec& o = it->second;
+        orders_.each_ordered([&](const OrderRec& o) {
             mix(o.id); mix(o.account); mix(o.filled); mix(o.remaining); mix(static_cast<uint64_t>(o.status)); mix(o.stop);
-        }
+        });
         mix(next_id_);
         return h;
     }
@@ -280,13 +348,11 @@ private:
         if (cfg_.bugs & kNoSelfTrade) return false;
         const auto ai = accounts_.find(account);
         if (ai == accounts_.end() || (side == Side::Buy ? ai->second.open_sell : ai->second.open_buy) == 0) return false;
-        for (const auto& kv : orders_) {
-            const OrderRec& o = kv.second;
-            if (o.account != account || o.status != Status::Open || o.remaining == 0 || o.side == side || o.id == ignore_id) continue;
-            if (type == Type::Market) return true;
-            if (side == Side::Buy ? o.price <= price : o.price >= price) return true;
-        }
-        return false;
+        return !orders_.all([&](const OrderRec& o) {
+            if (o.account != account || o.status != Status::Open || o.remaining == 0 || o.side == side || o.id == ignore_id) return true;
+            if (type == Type::Market) return false;
+            return !(side == Side::Buy ? o.price <= price : o.price >= price);
+        });
     }
     static int64_t exposure(const Account& a, Side s) { return s == Side::Buy ? a.position + a.open_buy : -a.position + a.open_sell; }
 
@@ -328,7 +394,7 @@ private:
         const uint64_t id = next_id_++;
         OrderRec rec{id, r.account, r.cl_ord_id, r.side, r.type, TimeInForce::GTC, r.type == Type::StopLimit ? r.price : 0u, r.qty, 0, r.qty, Status::Pending};
         rec.stop = r.stop_price;
-        orders_[id] = rec;
+        orders_.put(id, rec);
         pending_.insert(id);
         res.order_id = id;
         res.status = Status::Pending;
@@ -367,7 +433,7 @@ private:
         if (exposure(a, r.side) + r.qty > cfg_.max_position) return fail(res, Reject::PositionLimit);
         const uint64_t id = next_id_++;
         OrderRec rec{id, r.account, r.cl_ord_id, r.side, r.type, r.type == Type::Market ? TimeInForce::IOC : r.tif, r.type == Type::Market ? 0u : r.price, r.qty, 0, r.qty, Status::Open};
-        orders_[id] = rec;
+        orders_.put(id, rec);
         fills_.clear();
         const book::ExecReport er = r.type == Type::Market ? book_.submit_market(id, r.side, r.qty, fills_)
                                                            : book_.submit(id, r.side, r.tif, r.price, r.qty, fills_);
@@ -376,7 +442,7 @@ private:
             return fail(res, er.status == book::AddResult::PoolFull ? Reject::PoolFull : Reject::BadParam);
         }
         apply_fills(fills_);
-        OrderRec& o = orders_[id];
+        OrderRec& o = orders_.at(id);
         o.filled = er.filled;
         o.remaining = er.rested;
         o.status = er.rested > 0 ? Status::Open : (er.filled == r.qty ? Status::Filled : Status::Cancelled);
@@ -393,7 +459,7 @@ private:
     Config cfg_;
     book::OrderBook book_;
     std::vector<book::Fill> fills_;
-    std::unordered_map<uint64_t, OrderRec> orders_;
+    OrderStore orders_;
     std::map<uint32_t, Account> accounts_;
     std::vector<Seen> seen_;
     std::vector<uint32_t> seen_head_;

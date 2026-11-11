@@ -25,3 +25,5 @@ Each item is something I saw and cannot yet explain. None of these is a result.
 Update to doubt 18 (OMS unbounded memory): measured in bench/oms_alloc_bench.cpp, 3 runs on WSL2: 2.008 allocations and 193.8 live bytes per request, identical each run; the book allocates nothing. Which allocations these are is still a hypothesis.
 
 Doubt 20 (idempotency window): the Oms now remembers only the last seen_window requests (default 65,536). A duplicate older than that is accepted as a new order. A real exchange also dedupes within a bounded window, but the right size for Meridian is not decided and the gateway does not warn the client. Not tested beyond the window size.
+
+Doubt 21 (forgotten orders): the Oms keeps full records for about max_orders recent ids plus every open or pending order. A finished order older than that is forgotten: order() returns nullptr and cancel/modify answer UnknownOrder instead of NotOpen, and digest() ignores it. Memory bound shown only by test_oms_retire (functional), not measured. Pending stop orders are not bounded.
