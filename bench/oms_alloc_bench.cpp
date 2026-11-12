@@ -79,14 +79,14 @@ int main() {
         oms::Oms o(c);
         std::vector<uint64_t> live; live.reserve(1u << 18);
         std::vector<uint32_t> cyc; cyc.reserve(N);
-        uint64_t cl = 0;
+        uint64_t cl = 0, af = 0, az = 0, nf = 0, nz = 0;
         const uint64_t a0 = g_allocs; const uint64_t l0 = g_live;
         for (const Op& op : ops) {
             const uint32_t acct = op.buy ? 1 : 2;   // two accounts so crossing orders are not self-trades
             if (op.add || live.empty()) {
                 const oms::Request rq{acct, ++cl, op.buy ? book::Side::Buy : book::Side::Sell, oms::Type::Limit, book::TimeInForce::GTC, op.price, op.qty, 0};
                 const uint64_t t0 = rdtsc_begin();
-                const oms::Result r = o.submit(rq);
+                const uint64_t pa = g_allocs; const oms::Result r = o.submit(rq); (r.filled ? af : az) += g_allocs - pa; (r.filled ? nf : nz)++;
                 const uint64_t t1 = rdtsc_end();
                 cyc.push_back(static_cast<uint32_t>(t1 - t0));
                 if (r.status == oms::Status::Open && r.order_id) live.push_back(r.order_id);
@@ -102,6 +102,7 @@ int main() {
             }
         }
         report("oms", cyc, ghz, g_allocs - a0, int64_t(g_live) - int64_t(l0), N);
+        std::printf("oms split: traded orders %llu with %llu allocations, other orders %llu with %llu allocations\n", (unsigned long long)nf, (unsigned long long)af, (unsigned long long)nz, (unsigned long long)az);
         std::string why; std::printf("oms invariants ok: %d\n", o.check(&why) ? 1 : 0);
     }
     return 0;

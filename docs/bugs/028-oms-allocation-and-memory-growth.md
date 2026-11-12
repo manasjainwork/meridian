@@ -54,3 +54,7 @@ Behaviour changes: order() and cancel() on a finished order older than the windo
 
 ## Remaining
 The 111,148 allocations left are most likely the fills vector copied into Result for orders that trade (hypothesis, not verified). pending_ is a std::set and still allocates per stop order. would_self_trade() and check() still scan every kept record.
+
+## Where the remaining allocations are (measured, 3 runs, WSL2)
+The benchmark now counts allocations separately for orders that traded and orders that did not. Identical in all 3 runs: 60,626 orders that traded made 111,062 allocations (1.83 per traded order); the other 79,588 orders made 86 in total. So the allocations left after step 2 come from orders that trade. Not yet shown which allocations inside a trading order: the fills vector copied into Result is the likely one, and the first fill-carrying entries written into the idempotency ring may be part of it.
+Timing in these three runs was noisy (p50 180-327 ns), so no timing claim is made from them.
