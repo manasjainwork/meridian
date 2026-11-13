@@ -14,7 +14,7 @@ Status: format, loader and replay built; tested on one machine (WSL2). Writer th
 - Replay: three runs of a real 4-producer sequencer (4,000 requests per producer, submits, cancels and modifies). The log is saved, loaded and replayed into a fresh Oms. Every reply, the OMS digest and the fills checksum equal the original run; a second replay equals the first; a log with one record removed does not.
 
 ## Not shown
-- The tests were not run against deliberately broken versions of the log code on the author's machine (doubt 22).
+- Broken-version check, author's machine, WSL2, one run each: six deliberately broken versions (no CRC check, no sequence check, replay without the fills checksum, no request decode check, tag not stored, truncation accepted) each made test_event_log fail, and the restored code passes. One run each, not three.
 - The log writer thread (design D5: own thread) and the timestamps are not built; the log is produced from the sequencer's applied() list after the run.
 - Host byte order: a log is readable only on the same kind of machine. The header records the order but there is no converter.
 - No timing: nothing here measures the cost of writing the log.

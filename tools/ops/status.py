@@ -6,7 +6,7 @@ import csv, datetime as dt, glob, json, re, statistics
 
 MILESTONES = [
     ("engine", "M1 Sequencer core", "done", "Tests pass; 6 of 7 mutants caught (1 absorbed by OMS idempotency); ThreadSanitizer clean in 3 runs at 5,000 ops per producer, on WSL2"),
-    ("engine", "M2 Event log v2 and replay", "done", "88-byte records with CRC; round trip, truncation at every byte, bad CRC, sequence gap, bad command; replay of three 4-producer runs gives the same replies, OMS digest and fills; on WSL2. Writer thread and timestamps not built"),
+    ("engine", "M2 Event log v2 and replay", "done", "88-byte records with CRC; round trip, truncation at every byte, bad CRC, sequence gap, bad command; replay of three 4-producer runs gives the same replies, OMS digest and fills; on WSL2; 6 of 6 broken variants caught (one run each). Writer thread and timestamps not built"),
     ("engine", "M3 Binary TCP gateway v2", "todo", ""),
     ("engine", "M4 Timing (T1 to T4, histograms)", "todo", ""),
     ("engine", "M5 Virtual-clock mode", "todo", ""),

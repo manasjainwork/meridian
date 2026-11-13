@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-13 16:23 UTC",
+ "generated_at": "2026-11-13 17:07 UTC",
  "milestones": [
   {
    "group": "engine",
@@ -11,7 +11,7 @@
    "group": "engine",
    "name": "M2 Event log v2 and replay",
    "state": "done",
-   "note": "88-byte records with CRC; round trip, truncation at every byte, bad CRC, sequence gap, bad command; replay of three 4-producer runs gives the same replies, OMS digest and fills; on WSL2. Writer thread and timestamps not built"
+   "note": "88-byte records with CRC; round trip, truncation at every byte, bad CRC, sequence gap, bad command; replay of three 4-producer runs gives the same replies, OMS digest and fills; on WSL2; 6 of 6 broken variants caught (one run each). Writer thread and timestamps not built"
   },
   {
    "group": "engine",
@@ -168,7 +168,7 @@
   }
  ],
  "recorder": {
-  "files_gz": 72,
-  "last_log_line": "2026-11-13T15:36:02Z recording data/live/kraken-btcusd-20261113T153602Z.jsonl"
+  "files_gz": 73,
+  "last_log_line": "2026-11-13T16:51:29Z recording data/live/kraken-btcusd-20261113T165129Z.jsonl"
  }
 }
