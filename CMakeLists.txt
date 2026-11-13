@@ -155,6 +155,10 @@ add_executable(test_sequencer_mutants tests/test_sequencer_mutants.cpp)
 target_link_libraries(test_sequencer_mutants PRIVATE meridian_core)
 add_test(NAME sequencer_mutants COMMAND test_sequencer_mutants)
 
+add_executable(test_event_log tests/test_event_log.cpp)
+target_link_libraries(test_event_log PRIVATE meridian_core Threads::Threads)
+add_test(NAME event_log COMMAND test_event_log)
+
 add_executable(oms_alloc_bench bench/oms_alloc_bench.cpp)
 target_link_libraries(oms_alloc_bench PRIVATE meridian_core)
 target_compile_options(oms_alloc_bench PRIVATE -Wno-mismatched-new-delete -Wno-free-nonheap-object)

@@ -29,3 +29,5 @@ Doubt 20 (idempotency window): the Oms now remembers only the last seen_window r
 Doubt 21 (forgotten orders): the Oms keeps full records for about max_orders recent ids plus every open or pending order. A finished order older than that is forgotten: order() returns nullptr and cancel/modify answer UnknownOrder instead of NotOpen, and digest() ignores it. Memory bound shown only by test_oms_retire (functional), not measured. Pending stop orders are not bounded.
 
 Update to doubt 18 (after docs/bugs/028 steps 1-3): seen_ and orders_ are now bounded (window and chunks), open_orders() no longer scans every id ever. Still unbounded: pending stop orders (std::set) and accounts_. The memory bound is shown by test_oms_retire only, not measured.
+
+Doubt 22 (event log tests): test_event_log passed in 3 runs on the author machine, but it was not run against deliberately broken versions of the log code (no CRC check, no sequence check, replay without the fills checksum, tag not stored, truncation accepted) here, so it is not yet shown that it would notice those mistakes.

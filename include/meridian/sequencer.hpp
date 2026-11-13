@@ -56,6 +56,17 @@ inline oms::Result apply_msg(oms::Oms& o, const Msg& m) {
     return {};
 }
 
+// Checksum over every fill of every applied request, in order, stop-triggered fills included. The sequencer keeps one while it
+// runs and a replay computes the same one, so "same fills" is a single comparison.
+constexpr uint64_t kFillsDigestInit = 0xCBF29CE484222325ull;
+inline uint64_t fills_step(uint64_t h, uint64_t x) noexcept { h ^= x + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2); return h * 0x100000001B3ull; }
+inline uint64_t fills_mix(uint64_t h, const oms::Result& r) noexcept {
+    for (const book::Fill& f : r.fills) { h = fills_step(h, f.maker_id); h = fills_step(h, f.taker_id); h = fills_step(h, (uint64_t{f.price} << 32) | f.qty); }
+    h = fills_step(h, 0xF1);
+    for (const book::Fill& f : r.triggered) { h = fills_step(h, f.maker_id); h = fills_step(h, f.taker_id); h = fills_step(h, (uint64_t{f.price} << 32) | f.qty); }
+    return fills_step(h, 0xF2);
+}
+
 // Bit flags that deliberately break the sequencer so the mutation tests can prove they would notice (see test_sequencer_mutants).
 enum Bug : uint32_t { kDropRequest = 1, kSkipSeq = 2, kNoRotation = 4, kSwallowReply = 8, kStaleReply = 16, kReorder = 32, kApplyTwice = 64 };
 
@@ -107,11 +118,13 @@ public:
     const std::vector<Applied>& applied() const noexcept { return applied_; }
     const oms::Oms& oms() const noexcept { return oms_; }
     uint64_t seq() const noexcept { return seq_; }
+    uint64_t fills_digest() const noexcept { return fills_digest_; }
     uint64_t reply_stalls() const noexcept { return reply_stalls_.load(std::memory_order_relaxed); }
 
 private:
     void process(size_t p, const Msg& m) {
         const oms::Result r = apply_msg(oms_, m);
+        fills_digest_ = fills_mix(fills_digest_, r);
         if ((bugs_ & kApplyTwice) && popped_ % 53 == 0) apply_msg(oms_, m);
         if ((bugs_ & kSkipSeq) && popped_ % 71 == 0) ++seq_;
         const oms::Result& shown = ((bugs_ & kStaleReply) && popped_ % 67 == 0) ? prev_r_ : r;
@@ -136,6 +149,7 @@ private:
     std::atomic<bool> stop_{false};
     std::atomic<uint64_t> reply_stalls_{0};
     uint64_t seq_ = 0;
+    uint64_t fills_digest_ = kFillsDigestInit;
     size_t rot_ = 0;
 };
 
