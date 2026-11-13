@@ -44,31 +44,33 @@ not tested with adversarial ids.
 
 The sizes of Order (32 B) and Level (16 B) were checked with sizeof. All of this is allocated once in the constructor.
 
-## The OMS layer is not bounded
-The book is bounded; the OMS around it is not.
-| Structure | Type | Cost | Grows with |
+## The OMS layer (after the three changes in docs/bugs/028)
+The book is bounded. The OMS around it was not; three changes bounded most of it.
+| Structure | Type | Cost | Bound |
 |---|---|---|---|
-| orders_ | unordered_map by order id | O(1) expected | every order ever accepted (records are kept after fill or cancel) |
-| seen_ | std::map by (account, cl_ord_id) | O(log R) | every request ever received, with its full result including the fills |
-| accounts_ | std::map | O(log A) | accounts |
-| pending stops | std::set | O(log S) | waiting stop orders |
-| open_orders(account) | scan of all ids 1 to next_id | O(T) | T = all orders ever |
-| digest() | full walk | O(P + T + A) | for state comparison, not the hot path |
+| orders_ | OrderStore: chunks of 1024 ids, plus a small map for old orders that are still open or pending | O(1) | about max_orders recent ids plus every open or pending order; older finished orders are forgotten |
+| seen_ | ring of the last seen_window requests with a chained hash on two flat arrays | O(1) expected | seen_window requests (default 65,536); an older duplicate is treated as new |
+| Result.fills | up to 4 fills inside the Result, a vector beyond that | O(F) | no allocation for 4 fills or fewer |
+| accounts_ | std::map | O(log A) | grows with the number of accounts |
+| pending stops | std::set | O(log S) | grows with waiting stop orders; allocates |
+| open_orders(account), digest(), check() | walk of the kept records | O(kept) | for state comparison and queries, not the hot path |
+| would_self_trade() | walk of the kept records when the account has resting orders on the other side | O(kept) | still a scan |
 
-Consequences, from reading the code and not measured:
-- seen_ and orders_ are never erased, so memory grows with the number of requests. A long run needs an eviction rule (for example an idempotency window per account and archiving of finished orders). That changes the retry semantics and is a design decision, not a fix.
-- The OMS allocates (map nodes, result vectors), so the "no allocation on the hot path" intent covers the book only.
-- A sequencer's per-request cost is therefore likely set by the OMS path, not by the book. This is a hypothesis; it needs a profile.
+Measured (docs/bugs/028, same deterministic 200,000 operation stream, WSL2): allocations per operation 2.008 before, 0.030 after; live bytes growth per operation 193.8 before, 46.3 after. The bare book makes 0 allocations in the same stream. The remaining growth is order chunks that are still inside the kept window in that benchmark; the memory bound itself is shown only by a functional test (test_oms_retire), not by a memory measurement.
+
+Behaviour changes that came with it (doubts 20 and 21): an old duplicate is accepted as new, and a finished order older than the window is unknown to order() and cancel().
+
+Still hypotheses or open: where the last 5,821 allocations of trading orders come from; whether the OMS path really sets the sequencer's per-request cost (no profile with perf yet); the right size for the idempotency window.
 
 ## What exists as measurement
 - SPSC ring against a mutex queue: about 4 to 5 times faster at p50 in ping-pong, throughput bimodal with no known cause (docs/bugs/009, WSL2).
 - Book pipeline (ingress, ring, book, ring, egress): p50 about 250 ns up to 8 M orders/s, overloaded runs between 12 and 16 M orders/s, burst test of 400k orders per rate (docs/bugs/010, WSL2).
-- Nothing yet for the OMS path, the sequencer, or replicated orders at scale.
+- OMS path: allocations and memory growth per request before and after three changes (docs/bugs/028, WSL2). Its timing was noisy and no timing claim is made. Nothing yet for the sequencer under load, or replicated orders at scale.
 
 ## How it could scale (designs, not built)
 1. **Bigger price range.** Memory grows linearly with P; bitmap levels grow with log64 P, so L stays 3 up to 262,144 prices. The pool N is a hard limit: a full pool rejects with PoolFull.
-2. **Bounded OMS memory.** Evict old idempotency keys and archive finished orders (see above). Needed before any long run.
-3. **More throughput.** One writer thread per book is by design (D1). The pipeline split in doc 010 already separates ingress, engine and egress threads. A faster engine path means profiling the OMS first.
+2. **Bounded OMS memory.** Done in part (docs/bugs/028): idempotency window and order chunks. Open: pending stops, accounts, a memory measurement of the bound, and the right window size.
+3. **More throughput.** One writer thread per book is by design (D1). The pipeline split in doc 010 already separates ingress, engine and egress threads. The OMS no longer allocates on most requests (docs/bugs/028); a profile with perf is the next step.
 4. **More instruments.** One book and one sequencer thread per instrument (shard by instrument id). Cross-instrument risk, such as a position limit across instruments, needs a cross-shard rule that does not exist yet.
 5. **More producers.** One SPSC ring per producer. The sequencer polls all rings each pass, so a pass costs O(number of producers) even when idle. An epoll based I/O thread (D9) is the later change for many connections.
 6. **Replication.** A Raft group per shard. Textbook Raft sends one AppendEntries per follower per batch. The log grows without snapshots, and a restarted node replays the whole log; snapshots and log compaction are next on the roadmap.

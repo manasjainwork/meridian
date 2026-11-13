@@ -27,3 +27,5 @@ Update to doubt 18 (OMS unbounded memory): measured in bench/oms_alloc_bench.cpp
 Doubt 20 (idempotency window): the Oms now remembers only the last seen_window requests (default 65,536). A duplicate older than that is accepted as a new order. A real exchange also dedupes within a bounded window, but the right size for Meridian is not decided and the gateway does not warn the client. Not tested beyond the window size.
 
 Doubt 21 (forgotten orders): the Oms keeps full records for about max_orders recent ids plus every open or pending order. A finished order older than that is forgotten: order() returns nullptr and cancel/modify answer UnknownOrder instead of NotOpen, and digest() ignores it. Memory bound shown only by test_oms_retire (functional), not measured. Pending stop orders are not bounded.
+
+Update to doubt 18 (after docs/bugs/028 steps 1-3): seen_ and orders_ are now bounded (window and chunks), open_orders() no longer scans every id ever. Still unbounded: pending stop orders (std::set) and accounts_. The memory bound is shown by test_oms_retire only, not measured.
