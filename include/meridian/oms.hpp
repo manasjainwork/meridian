@@ -48,13 +48,45 @@ struct Request {
     }
 };
 
+// A short list of fills that lives inside the Result: up to kInline fills need no allocation, a longer one moves to a vector.
+class FillList {
+public:
+    static constexpr uint32_t kInline = 4;
+    FillList() = default;
+    FillList(const FillList& o) { assign(o.begin(), o.end()); }
+    FillList& operator=(const FillList& o) { if (this != &o) assign(o.begin(), o.end()); return *this; }
+    size_t size() const noexcept { return n_; }
+    bool empty() const noexcept { return n_ == 0; }
+    const book::Fill* begin() const noexcept { return data(); }
+    const book::Fill* end() const noexcept { return data() + n_; }
+    const book::Fill& operator[](size_t i) const noexcept { return data()[i]; }
+    void clear() noexcept { n_ = 0; spilled_ = false; heap_.clear(); }
+    void push_back(const book::Fill& f) {
+        if (!spilled_) {
+            if (n_ < kInline) { inl_[n_++] = f; return; }
+            heap_.assign(inl_, inl_ + n_);
+            spilled_ = true;
+        }
+        heap_.push_back(f);
+        ++n_;
+    }
+    template <class It> void append(It b, It e) { for (; b != e; ++b) push_back(*b); }
+    template <class It> void assign(It b, It e) { clear(); append(b, e); }
+private:
+    const book::Fill* data() const noexcept { return spilled_ ? heap_.data() : inl_; }
+    uint32_t n_ = 0;
+    bool spilled_ = false;
+    book::Fill inl_[kInline];
+    std::vector<book::Fill> heap_;
+};
+
 struct Result {
     Reject reject = Reject::None;
     uint64_t order_id = 0;
     Status status = Status::Rejected;
     uint32_t filled = 0, rested = 0, cancelled = 0;
     bool duplicate = false;
-    std::vector<book::Fill> fills;
+    FillList fills;
     std::vector<book::Fill> triggered;   // fills of stop orders that fired because of this operation, in order
 };
 
@@ -244,7 +276,7 @@ public:
         res.status = o.status;
         res.filled = er.filled;
         res.rested = er.rested;
-        res.fills = fills_;
+        res.fills.assign(fills_.begin(), fills_.end());
         run_triggers(res.triggered);
         return res;
     }
@@ -452,7 +484,7 @@ private:
         res.filled = er.filled;
         res.rested = er.rested;
         res.cancelled = er.cancelled;
-        res.fills = fills_;
+        res.fills.assign(fills_.begin(), fills_.end());
         return res;
     }
 

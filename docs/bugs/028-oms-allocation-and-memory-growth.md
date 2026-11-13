@@ -58,3 +58,16 @@ The 111,148 allocations left are most likely the fills vector copied into Result
 ## Where the remaining allocations are (measured, 3 runs, WSL2)
 The benchmark now counts allocations separately for orders that traded and orders that did not. Identical in all 3 runs: 60,626 orders that traded made 111,062 allocations (1.83 per traded order); the other 79,588 orders made 86 in total. So the allocations left after step 2 come from orders that trade. Not yet shown which allocations inside a trading order: the fills vector copied into Result is the likely one, and the first fill-carrying entries written into the idempotency ring may be part of it.
 Timing in these three runs was noisy (p50 180-327 ns), so no timing claim is made from them.
+
+## Step 3: fills inside the Result (measured, 3 runs, WSL2)
+Change: Result.fills is now a FillList that keeps up to 4 fills inside the Result and only moves to a vector for a longer list. Gateway copies it into its own vector. All 20 tests pass.
+
+Same benchmark, step 2 -> step 3:
+- allocations per op: 0.556 -> 0.030 (111,148 -> 5,907), identical in all 3 runs; orders that traded: 111,062 -> 5,821, other orders: 86 -> 86
+- live bytes growth per op: 56.3 -> 46.3 (11,252,512 -> 9,257,104), identical in all 3 runs
+- p50 156 / 161 / 153 ns, p99 593-766 ns, p99.9 2.5-12.6 us, max 45-60 us. Earlier sets had p50 157-202 ns and max 82-117 us, but run-to-run noise on this laptop has been large, so only the allocation change is claimed.
+
+Not shown: what the remaining 5,821 allocations in trading orders are (a trade with more than 4 fills moving to a vector is one candidate, chunk allocation another). The idempotency ring entries are now larger because every Result carries room for 4 fills; ring memory was not measured.
+
+## Remaining
+Result.triggered is still a vector (only used for stop orders). pending_ is a std::set. would_self_trade() and check() scan every kept record. All numbers here are WSL2 observations; none is a benchmark.

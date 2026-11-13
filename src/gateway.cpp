@@ -128,7 +128,7 @@ Reply error(int code, const std::string& msg) { return {code, "{\"ok\":false,\"e
 
 // Called with g_mu held.
 void record_trades(const Result& r) {
-    std::vector<book::Fill> all = r.fills;
+    std::vector<book::Fill> all(r.fills.begin(), r.fills.end());
     all.insert(all.end(), r.triggered.begin(), r.triggered.end());
     for (const book::Fill& f : all) {
         const OrderRec* tk = g_oms->order(f.taker_id);
