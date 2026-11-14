@@ -13,6 +13,7 @@
 // No clock, no randomness, ids come from a counter. That is what lets it sit behind a Raft log later.
 #include <cstdint>
 #include <algorithm>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <set>
@@ -53,8 +54,26 @@ class FillList {
 public:
     static constexpr uint32_t kInline = 4;
     FillList() = default;
-    FillList(const FillList& o) { assign(o.begin(), o.end()); }
-    FillList& operator=(const FillList& o) { if (this != &o) assign(o.begin(), o.end()); return *this; }
+    FillList(const FillList& o) : n_(o.n_), spilled_(o.spilled_) {
+        if (spilled_) heap_ = o.heap_; else std::memcpy(inl_, o.inl_, n_ * sizeof(book::Fill));
+    }
+    FillList& operator=(const FillList& o) {
+        if (this == &o) return *this;
+        n_ = o.n_; spilled_ = o.spilled_;
+        if (spilled_) heap_ = o.heap_; else { heap_.clear(); std::memcpy(inl_, o.inl_, n_ * sizeof(book::Fill)); }
+        return *this;
+    }
+    FillList(FillList&& o) noexcept : n_(o.n_), spilled_(o.spilled_) {
+        if (spilled_) heap_ = std::move(o.heap_); else std::memcpy(inl_, o.inl_, n_ * sizeof(book::Fill));
+        o.n_ = 0; o.spilled_ = false;
+    }
+    FillList& operator=(FillList&& o) noexcept {
+        if (this == &o) return *this;
+        n_ = o.n_; spilled_ = o.spilled_;
+        if (spilled_) heap_ = std::move(o.heap_); else { heap_.clear(); std::memcpy(inl_, o.inl_, n_ * sizeof(book::Fill)); }
+        o.n_ = 0; o.spilled_ = false;
+        return *this;
+    }
     size_t size() const noexcept { return n_; }
     bool empty() const noexcept { return n_ == 0; }
     const book::Fill* begin() const noexcept { return data(); }
@@ -146,7 +165,7 @@ public:
     OrderRec& put(uint64_t id, const OrderRec& rec) {
         const uint64_t c = id / kChunk;
         if (c >= chunks_.size()) chunks_.resize(c + 1);
-        if (!chunks_[c]) { chunks_[c] = std::make_unique<Chunk>(); retire_older(c); }
+        if (!chunks_[c]) { chunks_[c].reset(new Chunk); std::memset(chunks_[c]->used, 0, sizeof chunks_[c]->used); retire_older(c); }   // records are written before they are read; only `used` needs zeroing
         Chunk& ch = *chunks_[c];
         const uint32_t i = static_cast<uint32_t>(id % kChunk);
         ch.r[i] = rec; ch.used[i] = true;
@@ -372,7 +391,7 @@ private:
         s.next = head; head = slot;
     }
 
-    static Result& fail(Result& r, Reject why) { r.reject = why; r.status = Status::Rejected; return r; }
+    static Result&& fail(Result& r, Reject why) { r.reject = why; r.status = Status::Rejected; return std::move(r); }   // moved out, not copied
     static void add_open(Account& a, Side s, int64_t d) { (s == Side::Buy ? a.open_buy : a.open_sell) += d; }
     // Self-trade prevention, "reject the incoming order": refused if it could match one of the same account's own
     // resting orders. A market order is refused if the account has any resting order on the other side.

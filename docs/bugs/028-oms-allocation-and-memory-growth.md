@@ -71,3 +71,18 @@ Not shown: what the remaining 5,821 allocations in trading orders are (a trade w
 
 ## Remaining
 Result.triggered is still a vector (only used for stop orders). pending_ is a std::set. would_self_trade() and check() scan every kept record. All numbers here are WSL2 observations; none is a benchmark.
+
+## Step 4: fewer copies of Result, no zeroing of new chunks; instruction counts (WSL2)
+Change: FillList now copies and moves with a memcpy of the used fills instead of a push_back loop, and has a move constructor; Oms::fail returns the Result by move instead of copying it; a new order chunk is no longer zeroed as a whole (only its `used` flags). All 21 tests pass. Allocations per op 0.030 -> 0.012 (5,907 -> 2,301), identical in 3 runs.
+
+Instruction counts with valgrind --tool=callgrind (bench/oms_callgrind.cpp, same 200,000 operation stream, only the loop counted, one run each; instruction counts do not vary with machine load):
+- bare book: 37,953,496 instructions (190 per op)
+- Oms before this step: 171,477,848 (857 per op)
+- Oms after this step: 158,927,643 (795 per op), 7.3% fewer
+- the Oms path costs about 4.2 times the instructions of the bare book on this stream (cancels included)
+
+Timing in the three bench runs after this step was worse and noisier than the runs before it (p50 211 / 266 / 228 ns against 153-161 ns earlier, p99.9 16-18 us). Instruction counts went down, so this is most likely machine noise, but that is not shown. No timing claim is made in either direction.
+
+Where the instructions go (hypothesis): a callgrind profile run outside the author's machine showed the cost spread over do_submit, the idempotency ring write (seen_put), apply_fills, std::map lookups of accounts_ and the copying of the 192-byte Result, with no single dominant function. This attribution was not reproduced on the author's machine.
+
+Instruction counts are not time. Nothing here is a sequencer measurement, so "the OMS path sets the sequencer's per-request cost" is still a hypothesis, now with a reason to expect it (4.2 times the instructions of the book).

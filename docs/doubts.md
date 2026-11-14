@@ -33,3 +33,5 @@ Update to doubt 18 (after docs/bugs/028 steps 1-3): seen_ and orders_ are now bo
 Doubt 22 (event log tests): test_event_log passed in 3 runs on the author machine, but it was not run against deliberately broken versions of the log code (no CRC check, no sequence check, replay without the fills checksum, tag not stored, truncation accepted) here, so it is not yet shown that it would notice those mistakes.
 
 Doubt 22 closed in part: on the author machine six deliberately broken versions of the event log code (no CRC check, no sequence check, replay without the fills checksum, no request decode check, tag not stored, truncation accepted) each made test_event_log fail, one run each. Not three runs, and only these six mistakes were tried.
+
+Update to doubt 18 / OMS path cost: callgrind instruction counts on the author machine (WSL2, one run each): bare book 190 per op, Oms 795 per op after bug 028 step 4 (857 before). Instruction counts, not time; no sequencer measurement yet.
