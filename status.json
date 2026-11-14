@@ -1,0 +1,174 @@
+{
+ "generated_at": "2026-11-13 17:07 UTC",
+ "milestones": [
+  {
+   "group": "engine",
+   "name": "M1 Sequencer core",
+   "state": "done",
+   "note": "Tests pass; 6 of 7 mutants caught (1 absorbed by OMS idempotency); ThreadSanitizer clean in 3 runs at 5,000 ops per producer, on WSL2"
+  },
+  {
+   "group": "engine",
+   "name": "M2 Event log v2 and replay",
+   "state": "done",
+   "note": "88-byte records with CRC; round trip, truncation at every byte, bad CRC, sequence gap, bad command; replay of three 4-producer runs gives the same replies, OMS digest and fills; on WSL2; 6 of 6 broken variants caught (one run each). Writer thread and timestamps not built"
+  },
+  {
+   "group": "engine",
+   "name": "M3 Binary TCP gateway v2",
+   "state": "todo",
+   "note": ""
+  },
+  {
+   "group": "engine",
+   "name": "M4 Timing (T1 to T4, histograms)",
+   "state": "todo",
+   "note": ""
+  },
+  {
+   "group": "engine",
+   "name": "M5 Virtual-clock mode",
+   "state": "todo",
+   "note": ""
+  },
+  {
+   "group": "engine",
+   "name": "M6 Downstream publisher",
+   "state": "todo",
+   "note": ""
+  },
+  {
+   "group": "ml",
+   "name": "Kraken recorder and gap report",
+   "state": "done",
+   "note": "Records only while the laptop is on"
+  },
+  {
+   "group": "ml",
+   "name": "Recorder auto-start at login",
+   "state": "partial",
+   "note": "Worked once after a reboot (started 58 s after boot); 3 tests needed"
+  },
+  {
+   "group": "ml",
+   "name": "Book rebuild checked against Kraken's CRC32",
+   "state": "done",
+   "note": ""
+  },
+  {
+   "group": "ml",
+   "name": "Segmenter and descriptive stats",
+   "state": "done",
+   "note": "Describes these recordings only"
+  },
+  {
+   "group": "ml",
+   "name": "Several days of recording including a weekend",
+   "state": "partial",
+   "note": "In progress"
+  },
+  {
+   "group": "ml",
+   "name": "Simulator calibrated to the recordings",
+   "state": "todo",
+   "note": ""
+  },
+  {
+   "group": "ml",
+   "name": "Baseline agents",
+   "state": "todo",
+   "note": ""
+  },
+  {
+   "group": "ml",
+   "name": "First RL agent",
+   "state": "todo",
+   "note": ""
+  },
+  {
+   "group": "ml",
+   "name": "Latency experiments (H1 to H4)",
+   "state": "todo",
+   "note": ""
+  }
+ ],
+ "doubts": [
+  "Why the Kraken connection resets so often (median segment 20 s)",
+  "Why 2 to 4 percent of book messages show a spread above 1 USD",
+  "Whether the 85 percent same-side trade rate is one order printed as several trades",
+  "SPSC throughput is bimodal on WSL2 with no known cause",
+  "Millisecond stalls on WSL2",
+  "Every latency number needs bare-metal Linux before it is a claim"
+ ],
+ "segments": {
+  "count": 130,
+  "hours": 8.47,
+  "median_s": 20.3,
+  "max_s": 3310.1,
+  "ticks": 3785223,
+  "trades": 35882,
+  "from": "2026-11-06 04:27 UTC",
+  "to": "2026-11-07 08:37 UTC",
+  "buckets": [
+   {
+    "label": "under 10 s",
+    "count": 63
+   },
+   {
+    "label": "10 to 60 s",
+    "count": 10
+   },
+   {
+    "label": "1 to 5 min",
+    "count": 34
+   },
+   {
+    "label": "5 to 30 min",
+    "count": 18
+   },
+   {
+    "label": "over 30 min",
+    "count": 5
+   }
+  ]
+ },
+ "checksums": {
+  "ok": 3785223,
+  "bad": 0,
+  "files": 9
+ },
+ "stats": [
+  {
+   "k": "min_seg_s",
+   "v": "300.0 segments_kept 23 hours_kept 7.2"
+  },
+  {
+   "k": "spread_in_0.1_units",
+   "v": "p50/p90/p99 1 1 57"
+  },
+  {
+   "k": "book_msgs_per_s",
+   "v": "129.5"
+  },
+  {
+   "k": "1s_returns",
+   "v": "25099 std_bp 0.399 frac_zero 0.849"
+  },
+  {
+   "k": "1s_return_excess_kurtosis",
+   "v": "26.9"
+  },
+  {
+   "k": "trades",
+   "v": "31793 per_s 1.227 size_btc p50/p90/p99 0.00023964 0.00972537 0.24410851"
+  },
+  {
+   "k": "trade_sign_same_as_prev",
+   "v": "0.853 (0.5 = no memory)"
+  }
+ ],
+ "recorder": {
+  "files_gz": 73,
+  "last_log_line": "2026-11-13T16:51:29Z recording data/live/kraken-btcusd-20261113T165129Z.jsonl"
+ }
+}
