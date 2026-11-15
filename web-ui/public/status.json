@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-13 17:07 UTC",
+ "generated_at": "2026-11-15 02:41 UTC",
  "milestones": [
   {
    "group": "engine",
@@ -16,8 +16,8 @@
   {
    "group": "engine",
    "name": "M3 Binary TCP gateway v2",
-   "state": "todo",
-   "note": ""
+   "state": "partial",
+   "note": "Protocol v2, TCP gateway and tests pass (5 runs, 22 of 22 in ctest); replies over the wire equal the replay of the event log; on WSL2. Server program and HTTP path through the sequencer not built"
   },
   {
    "group": "engine",
@@ -168,7 +168,7 @@
   }
  ],
  "recorder": {
-  "files_gz": 73,
-  "last_log_line": "2026-11-13T16:51:29Z recording data/live/kraken-btcusd-20261113T165129Z.jsonl"
+  "files_gz": 96,
+  "last_log_line": "2026-11-15T02:39:22Z recording data/live/kraken-btcusd-20261115T023922Z.jsonl"
  }
 }

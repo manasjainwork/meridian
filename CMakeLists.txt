@@ -166,3 +166,10 @@ target_compile_options(oms_alloc_bench PRIVATE -Wno-mismatched-new-delete -Wno-f
 add_executable(test_tcp_gateway tests/test_tcp_gateway.cpp)
 target_link_libraries(test_tcp_gateway PRIVATE meridian_core Threads::Threads)
 add_test(NAME tcp_gateway COMMAND test_tcp_gateway)
+
+add_executable(test_hdr_histogram tests/test_hdr_histogram.cpp)
+target_link_libraries(test_hdr_histogram PRIVATE meridian_core)
+add_test(NAME hdr_histogram COMMAND test_hdr_histogram)
+
+add_executable(tsc_check bench/tsc_check.cpp)
+target_link_libraries(tsc_check PRIVATE meridian_core Threads::Threads)
