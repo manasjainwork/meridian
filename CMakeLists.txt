@@ -162,3 +162,7 @@ add_test(NAME event_log COMMAND test_event_log)
 add_executable(oms_alloc_bench bench/oms_alloc_bench.cpp)
 target_link_libraries(oms_alloc_bench PRIVATE meridian_core)
 target_compile_options(oms_alloc_bench PRIVATE -Wno-mismatched-new-delete -Wno-free-nonheap-object)
+
+add_executable(test_tcp_gateway tests/test_tcp_gateway.cpp)
+target_link_libraries(test_tcp_gateway PRIVATE meridian_core Threads::Threads)
+add_test(NAME tcp_gateway COMMAND test_tcp_gateway)
