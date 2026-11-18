@@ -21,7 +21,7 @@ One stamp pair costs 10 to 12 ns (median 12), included in the engine interval. Q
 - The tail (p99 and above of queue and total) is tens to thousands of microseconds, and at 200,000/s with a 3 second run it reaches milliseconds. The cause is not known. A guess, not tested: scheduler or hypervisor interruptions of WSL2, which would grow with run length and would not appear on bare metal with isolated cores.
 - Engine p50 is lower at higher rates (about 270 ns at 1.2 million/s against about 450 ns at 200,000/s). The cause is not known (caches, frequency, idle states are guesses).
 - No saturation point was reached: the sequencer kept up at 1.2 million requests per second in total. Its capacity is higher than that and is not measured.
-- The order stream has no trades across accounts of interest and no stops; it is not a market model.
+- The order stream is random limit orders and cancels from two accounts (trades between them, self-trade rejects inside one), with no stops and no market orders; it is not a market model.
 - WSL2: these are observations on this machine, not benchmarks.
 
 ## Not done yet
