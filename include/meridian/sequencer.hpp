@@ -11,6 +11,7 @@
 #include <vector>
 #include "meridian/oms.hpp"
 #include "meridian/spsc_queue.hpp"
+#include "meridian/timing.hpp"
 
 namespace meridian::seq {
 
@@ -39,6 +40,8 @@ struct Reply {
 };
 
 struct Applied { uint32_t producer; Msg msg; Reply reply; };
+// Design M4: TSC ticks on the sequencer core, T2 = request popped from its ring, T3 = apply finished. One per applied() entry, same index.
+struct Stamp { uint64_t pop = 0, apply = 0; };
 
 inline Reply make_reply(uint64_t seq, uint64_t tag, const oms::Result& r) {
     Reply x;
@@ -74,6 +77,8 @@ template <size_t P, size_t N>
 class Sequencer {
 public:
     explicit Sequencer(const oms::Config& c, size_t reserve_applied = 0, uint32_t bugs = 0) : oms_(c), bugs_(bugs) { applied_.reserve(reserve_applied); }
+    // Call before run(). Costs two timestamp reads per request on the sequencer thread; off by default.
+    void enable_timing(size_t reserve = 0) { timing_ = true; stamps_.reserve(reserve); }
 
     // producer side (producer p only): false = ring full, counted as busy; the request was NOT accepted
     bool submit(size_t p, const Msg& m) noexcept {
@@ -102,13 +107,14 @@ public:
             const size_t p = (start + i) % P;
             Msg m;
             if (!in_[p].try_pop(m)) continue;
+            const uint64_t t_pop = timing_ ? rdtsc_begin() : 0;
             ++popped_;
             ++done;
             if ((bugs_ & kDropRequest) && popped_ % 97 == 0) continue;
-            if ((bugs_ & kReorder) && !has_held_ && popped_ % 61 == 0) { held_ = m; held_p_ = p; has_held_ = true; continue; }
+            if ((bugs_ & kReorder) && !has_held_ && popped_ % 61 == 0) { held_ = m; held_p_ = p; held_t_ = t_pop; has_held_ = true; continue; }
             const bool flush = has_held_ && held_p_ == p;   // release the held request after that producer's next one
-            process(p, m);
-            if (flush) { has_held_ = false; process(held_p_, held_); }
+            process(p, m, t_pop);
+            if (flush) { has_held_ = false; process(held_p_, held_, held_t_); }
         }
         rot_ = (bugs_ & kNoRotation) ? start : (start + 1) % P;
         return done;
@@ -116,13 +122,14 @@ public:
 
     // read these only after run() has returned
     const std::vector<Applied>& applied() const noexcept { return applied_; }
+    const std::vector<Stamp>& stamps() const noexcept { return stamps_; }
     const oms::Oms& oms() const noexcept { return oms_; }
     uint64_t seq() const noexcept { return seq_; }
     uint64_t fills_digest() const noexcept { return fills_digest_; }
     uint64_t reply_stalls() const noexcept { return reply_stalls_.load(std::memory_order_relaxed); }
 
 private:
-    void process(size_t p, const Msg& m) {
+    void process(size_t p, const Msg& m, uint64_t t_pop) {
         const oms::Result r = apply_msg(oms_, m);
         fills_digest_ = fills_mix(fills_digest_, r);
         if ((bugs_ & kApplyTwice) && popped_ % 53 == 0) apply_msg(oms_, m);
@@ -130,6 +137,7 @@ private:
         const oms::Result& shown = ((bugs_ & kStaleReply) && popped_ % 67 == 0) ? prev_r_ : r;
         const Reply rep = make_reply(++seq_, m.tag, shown);
         prev_r_ = r;
+        if (timing_) stamps_.push_back({t_pop, rdtsc_end()});
         applied_.push_back({static_cast<uint32_t>(p), m, rep});
         if ((bugs_ & kSwallowReply) && popped_ % 89 == 0) return;
         while (!out_[p].try_push(rep)) reply_stalls_.fetch_add(1, std::memory_order_relaxed);
@@ -146,6 +154,9 @@ private:
     std::array<SpscQueue<Reply, N>, P> out_;
     std::array<std::atomic<uint64_t>, P> busy_{};
     std::vector<Applied> applied_;
+    std::vector<Stamp> stamps_;
+    bool timing_ = false;
+    uint64_t held_t_ = 0;
     std::atomic<bool> stop_{false};
     std::atomic<uint64_t> reply_stalls_{0};
     uint64_t seq_ = 0;

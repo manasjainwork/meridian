@@ -8,7 +8,7 @@ MILESTONES = [
     ("engine", "M1 Sequencer core", "done", "Tests pass; 6 of 7 mutants caught (1 absorbed by OMS idempotency); ThreadSanitizer clean in 3 runs at 5,000 ops per producer, on WSL2"),
     ("engine", "M2 Event log v2 and replay", "done", "88-byte records with CRC; round trip, truncation at every byte, bad CRC, sequence gap, bad command; replay of three 4-producer runs gives the same replies, OMS digest and fills; on WSL2; 6 of 6 broken variants caught (one run each). Writer thread and timestamps not built"),
     ("engine", "M3 Binary TCP gateway v2", "partial", "Protocol v2, TCP gateway and tests pass (5 runs, 22 of 22 in ctest); replies over the wire equal the replay of the event log; on WSL2. Server program and HTTP path through the sequencer not built"),
-    ("engine", "M4 Timing (T1 to T4, histograms)", "partial", "TSC check on cores 0 to 3 (offsets within about 70 ns, 3 runs) and latency histogram done, on WSL2. Timestamps in the sequencer, open-loop client and per-rate histograms not built"),
+    ("engine", "M4 Timing (T1 to T4, histograms)", "partial", "TSC check on cores 0 to 3 (offsets within about 70 ns, 3 runs) and latency histogram done; sequencer stamps and open-loop bench run at 200k, 600k and 1.2M requests per second, 3 runs each, checksum equal; WSL2. Gateway stamps, saturation sweep and bare metal not done"),
     ("engine", "M5 Virtual-clock mode", "todo", ""),
     ("engine", "M6 Downstream publisher", "todo", ""),
     ("ml", "Kraken recorder and gap report", "done", "Records only while the laptop is on"),

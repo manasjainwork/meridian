@@ -173,3 +173,14 @@ add_test(NAME hdr_histogram COMMAND test_hdr_histogram)
 
 add_executable(tsc_check bench/tsc_check.cpp)
 target_link_libraries(tsc_check PRIVATE meridian_core Threads::Threads)
+
+add_executable(test_seq_timing tests/test_seq_timing.cpp)
+target_link_libraries(test_seq_timing PRIVATE meridian_core Threads::Threads)
+add_test(NAME seq_timing COMMAND test_seq_timing)
+
+add_executable(seq_latency bench/seq_latency.cpp)
+target_link_libraries(seq_latency PRIVATE meridian_core Threads::Threads)
+
+add_executable(test_oms_selftrade_index tests/test_oms_selftrade_index.cpp)
+target_link_libraries(test_oms_selftrade_index PRIVATE meridian_core)
+add_test(NAME oms_selftrade_index COMMAND test_oms_selftrade_index)

@@ -11,6 +11,7 @@
 //    equity(mark) = cash + position * mark. Across all accounts position and cash both sum to zero.
 // It is a deterministic state machine: the same sequence of requests gives the same state and the same digest.
 // No clock, no randomness, ids come from a counter. That is what lets it sit behind a Raft log later.
+#include <array>
 #include <cstdint>
 #include <algorithm>
 #include <cstring>
@@ -120,6 +121,7 @@ struct Config {
     uint32_t bugs = 0;
     uint32_t order_history = 0;        // order records kept in full, in ids; 0 means max_orders. Older finished orders are dropped.
     uint32_t seen_window = 1u << 16;   // idempotency memory: the last this-many requests; an older duplicate is treated as new
+    bool crosscheck_self_trade = false; // tests: also run the full scan on every self-trade check and count disagreements with the index
 };
 
 struct OrderRec {
@@ -143,6 +145,10 @@ struct Account {
     int64_t cash = 0;       // ticks * lots, buys subtract and sells add
     int64_t open_buy = 0;   // lots resting on the bid side
     int64_t open_sell = 0;
+    // Open lots by price, ascending, only prices with lots > 0. This is the index of the self-trade check: the best opposite price is the
+    // first or last entry, so the check costs a binary search at most instead of a scan of every order (bug 032).
+    struct Level { uint32_t price; int64_t lots; };
+    std::vector<Level> buy_lv, sell_lv;
 };
 
 // Order records in fixed chunks of 1024 ids, so a new order costs no allocation except one chunk per 1024 orders.
@@ -256,7 +262,7 @@ public:
         }
         if (o.status != Status::Open) return fail(res, Reject::NotOpen);
         book_.cancel(order_id);
-        if (!(cfg_.bugs & kSkipOpenOnCancel)) add_open(accounts_[o.account], o.side, -static_cast<int64_t>(o.remaining));
+        if (!(cfg_.bugs & kSkipOpenOnCancel)) add_open(accounts_[o.account], o.side, o.price, -static_cast<int64_t>(o.remaining));
         res.order_id = order_id;
         res.status = Status::Cancelled;
         res.cancelled = o.remaining;
@@ -283,14 +289,14 @@ public:
         fills_.clear();
         book::ExecReport er{};
         if (book_.modify(order_id, new_price, new_qty, fills_, &er) != book::ModifyResult::Ok) return fail(res, Reject::BadParam);
-        add_open(a, o.side, -static_cast<int64_t>(o.remaining));
+        add_open(a, o.side, o.price, -static_cast<int64_t>(o.remaining));
         apply_fills(fills_);
         o.price = new_price;
         o.filled += er.filled;
         o.remaining = er.rested;
         o.qty = o.filled + o.remaining;
         o.status = o.remaining > 0 ? Status::Open : Status::Filled;
-        add_open(a, o.side, o.remaining);
+        add_open(a, o.side, o.price, o.remaining);
         res.order_id = order_id;
         res.status = o.status;
         res.filled = er.filled;
@@ -328,12 +334,14 @@ public:
         if (pos != 0) return fail_("positions do not sum to zero");
         if (cash != 0) return fail_("cash does not sum to zero");
         std::map<uint32_t, std::pair<int64_t, int64_t>> open;
+        std::map<uint32_t, std::array<std::map<uint32_t, int64_t>, 2>> by_price;   // account -> side -> price -> open lots
         int64_t rest_buy = 0, rest_sell = 0;
         const bool orders_ok = orders_.all([&](const OrderRec& o) {
             if (o.status == Status::Open) {
                 if (o.remaining == 0) return fail_("open order with nothing remaining");
                 (o.side == Side::Buy ? open[o.account].first : open[o.account].second) += o.remaining;
                 (o.side == Side::Buy ? rest_buy : rest_sell) += o.remaining;
+                by_price[o.account][o.side == Side::Buy ? 0 : 1][o.price] += o.remaining;
             } else if (o.status != Status::Pending && o.remaining != 0) return fail_("closed order with quantity remaining");
             if (o.status == Status::Pending && stop_hit(o.side, o.stop, last_px_, false)) return fail_("a stop order that should have fired is still pending");
             if (o.filled + o.remaining > o.qty) return fail_("order over-filled");
@@ -344,6 +352,20 @@ public:
             const auto it = open.find(kv.first);
             const int64_t b = it == open.end() ? 0 : it->second.first, s = it == open.end() ? 0 : it->second.second;
             if (kv.second.open_buy != b || kv.second.open_sell != s) return fail_("open quantity of account " + std::to_string(kv.first) + " is wrong");
+            const auto bp = by_price.find(kv.first);
+            for (int side = 0; side < 2; ++side) {
+                const auto& lv = side == 0 ? kv.second.buy_lv : kv.second.sell_lv;
+                size_t n = 0;
+                if (bp != by_price.end()) {
+                    n = bp->second[side].size();
+                    size_t i = 0;
+                    for (const auto& pl : bp->second[side]) {
+                        if (i >= lv.size() || lv[i].price != pl.first || lv[i].lots != pl.second) return fail_("price index of account " + std::to_string(kv.first) + " is wrong");
+                        ++i;
+                    }
+                }
+                if (lv.size() != n) return fail_("price index of account " + std::to_string(kv.first) + " has a level with no open orders");
+            }
         }
         int64_t book_buy = 0, book_sell = 0;
         for (uint32_t p = 1; p < cfg_.max_price; ++p) { book_buy += book_.qty_at(Side::Buy, p); book_sell += book_.qty_at(Side::Sell, p); }
@@ -392,11 +414,33 @@ private:
     }
 
     static Result&& fail(Result& r, Reject why) { r.reject = why; r.status = Status::Rejected; return std::move(r); }   // moved out, not copied
-    static void add_open(Account& a, Side s, int64_t d) { (s == Side::Buy ? a.open_buy : a.open_sell) += d; }
+    static void add_open(Account& a, Side s, uint32_t price, int64_t d) {
+        (s == Side::Buy ? a.open_buy : a.open_sell) += d;
+        if (d == 0) return;
+        auto& v = s == Side::Buy ? a.buy_lv : a.sell_lv;
+        auto it = std::lower_bound(v.begin(), v.end(), price, [](const Account::Level& l, uint32_t px) { return l.price < px; });
+        if (it != v.end() && it->price == price) { it->lots += d; if (it->lots == 0) v.erase(it); }
+        else if (d > 0) v.insert(it, Account::Level{price, d});
+    }
     // Self-trade prevention, "reject the incoming order": refused if it could match one of the same account's own
     // resting orders. A market order is refused if the account has any resting order on the other side.
+    // Would an order on `side` at `price` meet an open order of the same account on the other side? Uses the account's price index.
     bool would_self_trade(uint32_t account, Side side, Type type, uint32_t price, uint64_t ignore_id) const {
         if (cfg_.bugs & kNoSelfTrade) return false;
+        bool hit = false;
+        const auto ai = accounts_.find(account);
+        if (ai != accounts_.end()) {
+            const auto& opp = side == Side::Buy ? ai->second.sell_lv : ai->second.buy_lv;
+            if (!opp.empty()) hit = type == Type::Market ? true : (side == Side::Buy ? opp.front().price <= price : opp.back().price >= price);
+        }
+        if (cfg_.crosscheck_self_trade && hit != would_self_trade_scan(account, side, type, price, ignore_id)) ++self_trade_mismatches_;
+        return hit;
+    }
+public:
+    uint64_t self_trade_mismatches() const noexcept { return self_trade_mismatches_; }
+private:
+    // The earlier version: a scan of every order record. Kept only to cross-check the index in tests.
+    bool would_self_trade_scan(uint32_t account, Side side, Type type, uint32_t price, uint64_t ignore_id) const {
         const auto ai = accounts_.find(account);
         if (ai == accounts_.end() || (side == Side::Buy ? ai->second.open_sell : ai->second.open_buy) == 0) return false;
         return !orders_.all([&](const OrderRec& o) {
@@ -416,7 +460,7 @@ private:
             const OrderRec& tk = orders_.at(f.taker_id);
             mk.filled += f.qty;
             mk.remaining -= f.qty;
-            add_open(accounts_[mk.account], mk.side, -static_cast<int64_t>(f.qty));
+            add_open(accounts_[mk.account], mk.side, mk.price, -static_cast<int64_t>(f.qty));
             if (mk.remaining == 0) mk.status = Status::Filled;
             const uint32_t buyer = mk.side == Side::Buy ? mk.account : tk.account;
             const uint32_t seller = mk.side == Side::Buy ? tk.account : mk.account;
@@ -497,7 +541,7 @@ private:
         o.filled = er.filled;
         o.remaining = er.rested;
         o.status = er.rested > 0 ? Status::Open : (er.filled == r.qty ? Status::Filled : Status::Cancelled);
-        add_open(a, r.side, er.rested);
+        add_open(a, r.side, o.price, er.rested);
         res.order_id = id;
         res.status = o.status;
         res.filled = er.filled;
@@ -508,6 +552,7 @@ private:
     }
 
     Config cfg_;
+    mutable uint64_t self_trade_mismatches_ = 0;
     book::OrderBook book_;
     std::vector<book::Fill> fills_;
     OrderStore orders_;
