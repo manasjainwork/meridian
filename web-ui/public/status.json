@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-15 02:41 UTC",
+ "generated_at": "2026-11-18 13:21 UTC",
  "milestones": [
   {
    "group": "engine",
@@ -22,8 +22,8 @@
   {
    "group": "engine",
    "name": "M4 Timing (T1 to T4, histograms)",
-   "state": "todo",
-   "note": ""
+   "state": "partial",
+   "note": "TSC check on cores 0 to 3 (offsets within about 70 ns, 3 runs) and latency histogram done; sequencer stamps and open-loop bench run at 200k, 600k and 1.2M requests per second, 3 runs each, checksum equal; WSL2. Gateway stamps, saturation sweep and bare metal not done"
   },
   {
    "group": "engine",
@@ -168,7 +168,7 @@
   }
  ],
  "recorder": {
-  "files_gz": 96,
-  "last_log_line": "2026-11-15T02:39:22Z recording data/live/kraken-btcusd-20261115T023922Z.jsonl"
+  "files_gz": 134,
+  "last_log_line": "2026-11-18T12:39:08Z recording data/live/kraken-btcusd-20261118T123908Z.jsonl"
  }
 }

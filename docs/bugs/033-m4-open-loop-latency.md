@@ -26,3 +26,20 @@ One stamp pair costs 10 to 12 ns (median 12), included in the engine interval. Q
 
 ## Not done yet
 - A rate sweep to the saturation point, longer runs, T1 and T4 at the TCP gateway, and bare-metal Linux with pinned and isolated cores.
+
+## Sweep to saturation (author machine, WSL2, 600,000 requests per run, 3 runs per rate, replay checksum equal in 15 of 15)
+Offered rates per producer 800,000 to 3,000,000 per second (1.6 to 6 million in total):
+
+| offered total | completed per run | total latency p50 per run |
+|---|---|---|
+| 1.6 million/s | 1.598, 1.599, 1.600 million/s | 1.0 us, 3.9 us, 5.6 ms |
+| 2.0 million/s | 1.91, 1.86, 1.79 million/s | 13.7, 23.7, 18.2 ms |
+| 3.0 million/s | 2.44, 2.55, 2.32 million/s | 22.9, 35.7, 23.1 ms |
+| 4.0 million/s | 2.49, 2.66, 1.52 million/s | 32.1, 47.2, 123.2 ms |
+| 6.0 million/s | 1.80, 2.51, 2.51 million/s | 114.3, 63.7, 51.1 ms |
+
+- The knee is between 1.6 and 2.0 million requests per second in total for this order stream: at 1.6 million one of three runs already fell behind (total p50 5.6 ms); from 2.0 million every run did. Above the knee the completed rate was 1.5 to 2.7 million per second (most runs 1.8 to 2.7).
+- Above the knee latency is backlog: offered rate exceeds the completed rate, so the delay grows with the length of the run (these runs last 0.23 to 0.4 s). It is not the latency of a system at a steady load.
+- Engine p50 stays 220 to 390 ns at every rate, so the time to apply one request did not grow with load.
+- Ring-full retries were 0 in every run because the producers stop at 1,023 requests without a reply first (hundreds of millions of wait-loop iterations, which count loop passes and not events).
+- It is not known whether the limit is the sequencer thread or the two producer threads (which also build requests and read replies), so this is the capacity of this bench on this machine, not of the sequencer. The completed rate (at most 2.66 million/s) is below 1 / (engine p50), which says the sequencer does more per request than apply; how much is not measured. One run at 4.0 million/s completed only 1.52 million/s with engine p50 387 ns: an unexplained disturbance, kept in the table.
