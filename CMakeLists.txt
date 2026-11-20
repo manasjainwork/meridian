@@ -184,3 +184,7 @@ target_link_libraries(seq_latency PRIVATE meridian_core Threads::Threads)
 add_executable(test_oms_selftrade_index tests/test_oms_selftrade_index.cpp)
 target_link_libraries(test_oms_selftrade_index PRIVATE meridian_core)
 add_test(NAME oms_selftrade_index COMMAND test_oms_selftrade_index)
+
+add_executable(test_virtual_sequencer tests/test_virtual_sequencer.cpp)
+target_link_libraries(test_virtual_sequencer PRIVATE meridian_core Threads::Threads)
+add_test(NAME virtual_sequencer COMMAND test_virtual_sequencer)
