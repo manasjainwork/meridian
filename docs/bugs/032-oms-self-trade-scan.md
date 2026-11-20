@@ -18,3 +18,10 @@ Each Account keeps buy_lv and sell_lv: open lots by price, ascending, only price
 - In the assistant's sandbox only (not on the author machine): 6 of 6 deliberately broken versions of the index were caught by the new test; allocations in oms_alloc_bench went from 2,301 to 2,313 in 200,000 requests.
 - Insert and erase in the per-account vectors cost time proportional to the number of distinct prices of that account; with thousands of distinct prices per account this would show. Not measured.
 - No other scan in the OMS was searched for beyond this one.
+
+## Cost of the index in instructions (callgrind, 200,000 requests, bench/oms_callgrind.cpp, author machine)
+- The book alone: 37,953,496 instructions, unchanged (190 per request).
+- The OMS: 158,927,643 before this fix (795 per request, from bug 028) and 184,933,552 after (925 per request): 26.0 million more, 16.4 percent.
+- Why: in this stream account 1 only buys and account 2 only sells, so the old check returned at once without scanning and the index only adds work (a binary search and a vector update at each change of an open order). The index pays off when one account has orders on both sides and many orders exist (oms_scale above). The price of that is a constant cost on every request, which is now measured.
+- In the assistant's sandbox (a different compiler, gcc 13): 164.8 million before and 187.6 million after; add_open accounts for about 7 million of the 22.8 million more. The rest is not attributed.
+- Where the 925 instructions per request go (self cost, author machine): do_submit 32.8 million (164 per request, 17.8 percent), book submit 13.8 million (7.4), apply_fills 12.9 million (7.0), seen_put 12.5 million (6.8), submit 11.9 million (6.4), fill_level 7.5 million (4.1). No single function is more than 18 percent: the cost is spread, so there is no one big fix.
