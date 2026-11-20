@@ -43,3 +43,17 @@ Offered rates per producer 800,000 to 3,000,000 per second (1.6 to 6 million in 
 - Engine p50 stays 220 to 390 ns at every rate, so the time to apply one request did not grow with load.
 - Ring-full retries were 0 in every run because the producers stop at 1,023 requests without a reply first (hundreds of millions of wait-loop iterations, which count loop passes and not events).
 - It is not known whether the limit is the sequencer thread or the two producer threads (which also build requests and read replies), so this is the capacity of this bench on this machine, not of the sequencer. The completed rate (at most 2.66 million/s) is below 1 / (engine p50), which says the sequencer does more per request than apply; how much is not measured. One run at 4.0 million/s completed only 1.52 million/s with engine p50 387 ns: an unexplained disturbance, kept in the table.
+
+## Where the sequencer thread spends its time (author machine, WSL2, 3 runs per rate, replay checksum equal in 9 of 9)
+From the sequencer's own stamps: apply time against its span from the first pop to the last apply, and the gap between finishing one request and popping the next (reply push, polling the rings, bookkeeping, and idle time when nothing is waiting).
+
+| offered total | apply share of span | mean apply | mean gap | gap p50 | completed per run |
+|---|---|---|---|---|---|
+| 1.2 million/s | 41.3, 40.0, 35.4 % | 344, 334, 295 ns | 489, 499, 538 ns | 97 to 102 ns | 1.200 million/s in all three |
+| 2.0 million/s | 56.6, 53.6, 63.0 % | 283, 268, 316 ns | 217, 231, 185 ns | 62 to 74 ns | 1.9998, 1.9999, 1.995 million/s |
+| 6.0 million/s | 77.2, 76.0, 79.3 % | 338, 265, 408 ns | 99, 83, 106 ns | 40 to 49 ns | 2.28, 2.86, 1.94 million/s |
+
+- At a load the sequencer carries easily it is idle more than half of the time. At 6 million/s offered the gap p50 is 40 to 49 ns, so the next request is almost always already waiting: the limit of this bench there is the sequencer thread, not the producers (an inference from the short gaps and from the producers waiting at their 1,023-request limit; idle time inside the gap cannot be separated from overhead).
+- At saturation about 76 to 79 percent of the thread's time is apply (the OMS) and about 21 to 24 percent (83 to 106 ns per request) is outside apply. The stamp pair itself costs 12 ns of that.
+- Mean apply is 265 to 408 ns against a median engine time of 209 to 317 ns in the same runs: the tail adds a little to the mean. Run to run the mean apply differs by up to 1.5 times at 6 million/s (265 against 408 ns); the cause is not known.
+- At 2.0 million/s offered all three runs kept up here, while in the earlier sweep none did (completed 1.79 to 1.91 million/s). Near the knee the outcome varies from run to run.

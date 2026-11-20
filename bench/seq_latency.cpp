@@ -120,6 +120,15 @@ int main(int argc, char** argv) {
             last_ack = std::max(last_ack, r.ack[i]);
         }
 
+    // Where the sequencer thread spends its time, from its own stamps: apply time against the whole span, and the gap between finishing
+    // one request and popping the next (reply push, polling the rings, bookkeeping, and idle time when nothing is waiting).
+    Histogram<> hg;
+    double busy_ticks = 0;
+    for (size_t i = 0; i < st.size(); ++i) {
+        busy_ticks += static_cast<double>(st[i].apply - st[i].pop);
+        if (i) hg.record(static_cast<uint64_t>(static_cast<double>(st[i].pop - st[i - 1].apply) / ghz));
+    }
+    const double span_ticks = st.empty() ? 1.0 : static_cast<double>(st.back().apply - st.front().pop);
     const evlog::EventLog log = evlog::EventLog::from_applied(sq.applied());
     oms::Oms fresh(cfg());
     evlog::ReplayOut out;
@@ -133,6 +142,9 @@ int main(int argc, char** argv) {
     std::printf("  completed %.0f/s total over %.3f s; ring-full retries %llu, flow-control waits %llu, reply stalls %llu\n",
                 static_cast<double>(np * ops) / secs, secs, (unsigned long long)busy, (unsigned long long)flow, (unsigned long long)sq.reply_stalls());
     show("queue  (T2 - due)", hq); show("engine (T3 - T2)", he); show("ack    (T4 - T3)", ha); show("total  (T4 - due)", ht);
+    show("gap    (T3 to next T2)", hg);
+    std::printf("  sequencer thread: apply took %.1f%% of its first-pop to last-apply span; mean apply %.0f ns, mean gap %.0f ns\n",
+                100.0 * busy_ticks / span_ticks, busy_ticks / ghz / static_cast<double>(st.size()), hg.mean());
     std::printf("  stamp pair cost: min %.0f ns, median %.0f ns (a floor and a bias on engine); negative cross-core values clamped: queue %llu, ack %llu\n",
                 pair_lo / ghz, pair[pair.size() / 2] / ghz, (unsigned long long)neg_q, (unsigned long long)neg_a);
     std::printf("  checksum: replay %s (OMS digest, fills digest, %zu records)\n", same ? "equal" : "DIFFERENT", log.size());
