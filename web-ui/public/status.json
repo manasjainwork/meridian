@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-18 13:21 UTC",
+ "generated_at": "2026-11-22 11:28 UTC",
  "milestones": [
   {
    "group": "engine",
@@ -28,8 +28,8 @@
   {
    "group": "engine",
    "name": "M5 Virtual-clock mode",
-   "state": "todo",
-   "note": ""
+   "state": "partial",
+   "note": "Virtual-clock ordering and seeded delay models pass their tests (3 runs each, 27 of 27 in ctest); same input gave identical log bytes for different push orders; 4 ordering mutants caught; on WSL2. Not done: log comparison with the real-time sequencer, delays measured from a real run"
   },
   {
    "group": "engine",
@@ -168,7 +168,7 @@
   }
  ],
  "recorder": {
-  "files_gz": 134,
-  "last_log_line": "2026-11-18T12:39:08Z recording data/live/kraken-btcusd-20261118T123908Z.jsonl"
+  "files_gz": 180,
+  "last_log_line": "2026-11-22T11:19:32Z recording data/live/kraken-btcusd-20261122T111932Z.jsonl"
  }
 }
