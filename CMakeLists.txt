@@ -188,3 +188,7 @@ add_test(NAME oms_selftrade_index COMMAND test_oms_selftrade_index)
 add_executable(test_virtual_sequencer tests/test_virtual_sequencer.cpp)
 target_link_libraries(test_virtual_sequencer PRIVATE meridian_core Threads::Threads)
 add_test(NAME virtual_sequencer COMMAND test_virtual_sequencer)
+
+add_executable(test_delay_model tests/test_delay_model.cpp)
+target_link_libraries(test_delay_model PRIVATE meridian_core Threads::Threads)
+add_test(NAME delay_model COMMAND test_delay_model)
