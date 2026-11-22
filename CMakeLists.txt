@@ -192,3 +192,7 @@ add_test(NAME virtual_sequencer COMMAND test_virtual_sequencer)
 add_executable(test_delay_model tests/test_delay_model.cpp)
 target_link_libraries(test_delay_model PRIVATE meridian_core Threads::Threads)
 add_test(NAME delay_model COMMAND test_delay_model)
+
+add_executable(test_virtual_vs_realtime tests/test_virtual_vs_realtime.cpp)
+target_link_libraries(test_virtual_vs_realtime PRIVATE meridian_core Threads::Threads)
+add_test(NAME virtual_vs_realtime COMMAND test_virtual_vs_realtime)
