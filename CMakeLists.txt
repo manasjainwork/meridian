@@ -199,3 +199,9 @@ add_test(NAME virtual_vs_realtime COMMAND test_virtual_vs_realtime)
 
 add_executable(seq_gateway src/seq_gateway.cpp)
 target_link_libraries(seq_gateway PRIVATE meridian_core Threads::Threads)
+
+add_executable(tcp_latency bench/tcp_latency.cpp)
+target_link_libraries(tcp_latency PRIVATE meridian_core Threads::Threads)
+
+add_executable(hiccup bench/hiccup.cpp)
+target_link_libraries(hiccup PRIVATE meridian_core Threads::Threads)
