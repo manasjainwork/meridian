@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-22 11:33 UTC",
+ "generated_at": "2026-11-24 09:24 UTC",
  "milestones": [
   {
    "group": "engine",
@@ -17,7 +17,7 @@
    "group": "engine",
    "name": "M3 Binary TCP gateway v2",
    "state": "partial",
-   "note": "Protocol v2, TCP gateway and tests pass (5 runs, 22 of 22 in ctest); replies over the wire equal the replay of the event log; on WSL2. Server program and HTTP path through the sequencer not built"
+   "note": "Protocol v2, TCP gateway and tests pass (5 runs, 22 of 22 in ctest); replies over the wire equal the replay of the event log; on WSL2. Standalone server (seq_gateway) and a Python smoke client ran once: two orders, heartbeat, bad message closed, log replay matched (bug 037). HTTP path through the sequencer not built"
   },
   {
    "group": "engine",
@@ -168,7 +168,7 @@
   }
  ],
  "recorder": {
-  "files_gz": 180,
-  "last_log_line": "2026-11-22T11:19:32Z recording data/live/kraken-btcusd-20261122T111932Z.jsonl"
+  "files_gz": 211,
+  "last_log_line": "2026-11-24T09:21:07Z recording data/live/kraken-btcusd-20261124T092107Z.jsonl"
  }
 }
